@@ -67,3 +67,5 @@ Changing it later invalidates existing passwords.
 
 Only Workers, D1, static assets and (optionally) Email Routing are used — all on the Free plan. No R2, KV, Queues or paid add-ons.
 If a daily free limit is ever exceeded, requests fail until the next day; nothing is billed.
+
+
