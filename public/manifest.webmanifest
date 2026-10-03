@@ -1,0 +1,9 @@
+{
+  "name": "Loopline · Loopwrk",
+  "short_name": "Loopline",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101014",
+  "theme_color": "#101014",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
