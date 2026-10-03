@@ -69,3 +69,8 @@ Only Workers, D1, static assets and (optionally) Email Routing are used — all 
 If a daily free limit is ever exceeded, requests fail until the next day; nothing is billed.
 
 
+
+## Deploy log
+
+- 03.10.2026: Phases 1–3 live. Git integration reconnected; this entry triggers a fresh Workers Build.
+end of the reade me.
