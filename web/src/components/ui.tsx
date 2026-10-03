@@ -26,6 +26,12 @@ const PATHS: Record<string, preact.JSX.Element> = {
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   out: <g><path d="M14 4h5v16h-5" /><path d="M10 8l-4 4 4 4M6 12h10" /></g>,
   x: <path d="M6 6l12 12M18 6L6 18" />,
+  up: <g><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 16v4h16v-4" /></g>,
+  down: <g><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4 16v4h16v-4" /></g>,
+  dash: <g><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></g>,
+  list: <g><path d="M8 6h13M8 12h13M8 18h13" /><circle cx="4" cy="6" r=".8" /><circle cx="4" cy="12" r=".8" /><circle cx="4" cy="18" r=".8" /></g>,
+  metrics: <g><path d="M4 20h16" /><path d="M5 16l4-5 4 3 6-8" /></g>,
+  brief: <g><rect x="3" y="7" width="18" height="13" rx="1.5" /><path d="M9 7V4h6v3" /></g>,
 };
 
 export function Icon({ name }: { name: keyof typeof PATHS | string }) {
@@ -66,7 +72,7 @@ export function VarChip({ scope, actual, show }: { scope: number | null; actual:
   return <span class={'var ' + c}>{(p > 0 ? '+' : '') + p}%</span>;
 }
 
-export function Modal({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ComponentChildren; footer?: ComponentChildren }) {
+export function Modal({ title, onClose, children, footer, wide }: { title: string; onClose: () => void; children: ComponentChildren; footer?: ComponentChildren; wide?: boolean }) {
   useEffect(() => {
     const on = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     addEventListener('keydown', on);
@@ -74,7 +80,7 @@ export function Modal({ title, onClose, children, footer }: { title: string; onC
   }, [onClose]);
   return (
     <div class="veil" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div class="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div class={'modal' + (wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={title}>
         <span class="corner tl" />
         <span class="corner br" />
         <div class="modal-h">

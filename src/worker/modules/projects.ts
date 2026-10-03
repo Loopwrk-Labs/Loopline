@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../lib/types';
-import { body, fail, now, requireRole, str, uid } from '../lib/http';
+import { body, date, fail, now, num, requireRole, str, uid } from '../lib/http';
 
 export const projects = new Hono<AppEnv>();
 
@@ -12,7 +12,7 @@ export async function getProject(db: D1Database, id: string) {
 
 projects.get('/projects', async (c) => {
   const { results } = await c.env.DB.prepare(
-    `SELECT p.id, p.key, p.name, p.client, p.lang, p.archived, p.created_at,
+    `SELECT p.id, p.key, p.name, p.client, p.lang, p.archived, p.created_at, p.description, p.budget_hours, p.start_date, p.end_date, p.rag, p.client_contact,
        (SELECT COUNT(*) FROM items i WHERE i.project_id = p.id AND i.archived = 0 AND i.status != 'done' AND i.type != 'epic') AS open_items
      FROM projects p ORDER BY p.archived, p.name`,
   ).all();
@@ -49,8 +49,17 @@ projects.patch('/projects/:id', async (c) => {
   const archived = b.archived !== undefined ? (b.archived ? 1 : 0) : (cur.archived as number);
   if (!name) fail(400, 'bad_name', 'Enter a project name.');
   if (!['sr', 'en'].includes(lang)) fail(400, 'bad_lang');
-  await c.env.DB.prepare('UPDATE projects SET name = ?, client = ?, lang = ?, archived = ? WHERE id = ?')
-    .bind(name, client, lang, archived, id)
+  const pick = <T,>(k: string, parse: (v: unknown) => T) => (b[k] !== undefined ? parse(b[k]) : (cur[k] as T));
+  const description = pick('description', (v) => str(v, 5000));
+  const budget = pick('budget_hours', num);
+  const start = pick('start_date', date);
+  const end = pick('end_date', date);
+  const rag = pick('rag', (v) => (['green', 'amber', 'red'].includes(v as string) ? (v as string) : fail(400, 'bad_rag')));
+  const contact = pick('client_contact', (v) => str(v, 300));
+  await c.env.DB.prepare(
+    'UPDATE projects SET name = ?, client = ?, lang = ?, archived = ?, description = ?, budget_hours = ?, start_date = ?, end_date = ?, rag = ?, client_contact = ? WHERE id = ?',
+  )
+    .bind(name, client, lang, archived, description, budget, start, end, rag, contact, id)
     .run();
   return c.json({ ok: true });
 });

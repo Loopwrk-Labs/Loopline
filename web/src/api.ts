@@ -26,6 +26,7 @@ export const api = {
   get: <T>(p: string) => req<T>('GET', p),
   post: <T>(p: string, d?: unknown) => req<T>('POST', p, d ?? {}),
   patch: <T>(p: string, d: unknown) => req<T>('PATCH', p, d),
+  put: <T>(p: string, d: unknown) => req<T>('PUT', p, d),
   del: <T>(p: string) => req<T>('DELETE', p),
 };
 
@@ -46,7 +47,11 @@ export type Me = {
   must_change_pw: number;
 };
 export type User = { id: string; name: string; initials: string; role: Role; active: number; email?: string; must_change_pw?: number };
-export type Project = { id: string; key: string; name: string; client: string | null; lang: 'sr' | 'en'; archived: number; open_items: number };
+export type Project = {
+  id: string; key: string; name: string; client: string | null; lang: 'sr' | 'en'; archived: number; open_items: number;
+  description: string | null; budget_hours: number | null; start_date: string | null; end_date: string | null; rag: 'green' | 'amber' | 'red'; client_contact: string | null;
+};
+export type Capacity = { sprint_id?: string; user_id: string; hours: number };
 export type Sprint = {
   id: string;
   project_id: string;
@@ -59,6 +64,10 @@ export type Sprint = {
   done_count: number;
   points: number;
   done_points: number;
+  committed_points: number | null;
+  committed_items: number | null;
+  started_at: number | null;
+  closed_at: number | null;
 };
 export type Item = {
   id: string;

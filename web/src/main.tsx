@@ -6,6 +6,7 @@ import { LangCtx, makeT, type Lang } from './i18n';
 import { AppCtx, useRoute, type AppState } from './state';
 import { ChangePassword, Login, Setup } from './pages/Auth';
 import { Shell } from './pages/Shell';
+import { AcceptPage } from './pages/AcceptPage';
 
 type Phase = 'loading' | 'setup' | 'login' | 'mustchange' | 'app';
 
@@ -53,6 +54,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (location.hash.startsWith('#/a/')) return; // public approval page: no sign-in
     boot();
     const unauth = () => setPhase('login');
     const must = () => setPhase('mustchange');
@@ -120,7 +122,8 @@ function App() {
     : null;
 
   let view;
-  if (phase === 'loading') view = <div class="auth faint mono">…</div>;
+  if (route[0] === 'a' && route[1]) view = <AcceptPage token={route[1]} />;
+  else if (phase === 'loading') view = <div class="auth faint mono">…</div>;
   else if (phase === 'setup') view = <Setup onDone={boot} />;
   else if (phase === 'login') view = <Login onDone={boot} />;
   else if (phase === 'mustchange') view = <ChangePassword forced onDone={boot} />;

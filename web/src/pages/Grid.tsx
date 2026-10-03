@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { api, ApiError, TYPES, type Item, type ItemType } from '../api';
 import { fmtNum, useT } from '../i18n';
 import { useApp } from '../state';
-import { TypeBadge, VarChip } from '../components/ui';
+import { Icon, Modal, TypeBadge, VarChip } from '../components/ui';
+import { ImportModal } from '../components/ImportModal';
+import { exportItems } from '../excel';
 import { ParentSelect, SprintSelect, StatusSelect, UserSelect, epicOf } from '../components/fields';
 import { DateCell, NumCell, TextCell } from '../components/cells';
 import { isLate, isLeaf, rolled } from '../hours';
@@ -17,6 +19,50 @@ export function Grid() {
   const [sprintSel, setSprintSel] = useState('');
   const [newType, setNewType] = useState<ItemType>('story');
   const [newTitle, setNewTitle] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [views, setViews] = useState<SavedView[]>([]);
+  const [viewId, setViewId] = useState('');
+  const [saving, setSaving] = useState<{ name: string; shared: boolean } | null>(null);
+
+  const loadViews = () => api.get<SavedView[]>(`/projects/${project!.id}/views`).then(setViews).catch(() => {});
+  useEffect(() => {
+    loadViews();
+    setViewId('');
+  }, [project?.id]);
+  const applyView = (id: string) => {
+    setViewId(id);
+    const v = views.find((x) => x.id === id);
+    if (!v) return;
+    setTypeSel(v.config.typeSel ?? 'work');
+    setSprintSel(v.config.sprintSel ?? '');
+    setShowDone(!!v.config.showDone);
+    setByEpic(v.config.byEpic !== false);
+  };
+  const saveView = async () => {
+    if (!saving?.name.trim()) return;
+    try {
+      const r = await api.post<{ id: string }>(`/projects/${project!.id}/views`, { name: saving.name, shared: saving.shared, config: { typeSel, sprintSel, showDone, byEpic } });
+      await loadViews();
+      setViewId(r.id);
+      setSaving(null);
+      app.toast(t('saved'));
+    } catch (x) {
+      app.toast(x instanceof ApiError ? x.message : 'Network error.', 'err');
+    }
+  };
+  const deleteView = async () => {
+    if (!viewId) return;
+    await api.del(`/views/${viewId}`).catch(() => {});
+    setViewId('');
+    loadViews();
+  };
+  const doExport = async () => {
+    try {
+      await exportItems({ lang: project!.lang, projectKey: project!.key, users: app.users, sprints, items }, rows, `loopline-${project!.key}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (x) {
+      app.toast(String(x), 'err');
+    }
+  };
 
   const rows = useMemo(
     () =>
@@ -123,6 +169,30 @@ export function Grid() {
           {rows.length} {t('rows').toLowerCase()}
         </span>
         <div class="row sp">
+          <span class="views">
+            <select id="grid-view" class="select" value={viewId} onChange={(e) => applyView(e.currentTarget.value)} aria-label={t('view')}>
+              <option value="">{t('view')}: {t('view_default')}</option>
+              {views.map((v) => (
+                <option value={v.id}>
+                  {v.name}
+                  {v.shared ? ' · ' + t('team') : ''}
+                </option>
+              ))}
+            </select>
+            {viewId ? (
+              <button class="btn sm" onClick={deleteView} title={t('delete')}>✕</button>
+            ) : (
+              <button class="btn sm" onClick={() => setSaving({ name: '', shared: true })}>{t('save_view')}</button>
+            )}
+          </span>
+          <button class="btn" onClick={() => setImporting(true)}>
+            <Icon name="up" />
+            {t('import_excel')}
+          </button>
+          <button class="btn" onClick={doExport}>
+            <Icon name="down" />
+            {t('export_excel')}
+          </button>
           <select id="grid-type" class="select" value={typeSel} onChange={(e) => setTypeSel(e.currentTarget.value as never)} aria-label={t('types')}>
             <option value="work">
               {t('ty_story')} · {t('ty_bug')} · {t('ty_task')}
@@ -211,7 +281,33 @@ export function Grid() {
             {t('over20')} <b style={{ color: over ? 'var(--bad)' : undefined }}>{over}</b>
           </span>
         </div>
-      </div>
+            </div>
+      {importing && <ImportModal onClose={() => setImporting(false)} />}
+      {saving && (
+        <Modal
+          title={t('save_view')}
+          onClose={() => setSaving(null)}
+          footer={
+            <>
+              <button class="btn" onClick={() => setSaving(null)}>{t('cancel')}</button>
+              <button class="btn solid" onClick={saveView} disabled={!saving.name.trim()}>{t('save')}</button>
+            </>
+          }
+        >
+          <div class="form">
+            <label class="field">
+              <span class="label">{t('name')}</span>
+              <input id="view-name" class="input" autoFocus value={saving.name} onInput={(e) => setSaving({ ...saving, name: e.currentTarget.value })} />
+            </label>
+            <label class="chk">
+              <input type="checkbox" checked={saving.shared} onChange={(e) => setSaving({ ...saving, shared: e.currentTarget.checked })} />
+              {t('share_team')}
+            </label>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }
+
+type SavedView = { id: string; name: string; shared: number; config: { typeSel?: 'work' | ItemType; sprintSel?: string; showDone?: boolean; byEpic?: boolean } };

@@ -3,6 +3,8 @@ export type Env = {
   ASSETS: Fetcher;
   /** Optional server-side secret mixed into password hashes (set as a Worker secret). */
   AUTH_PEPPER?: string;
+  /** Domain that receives client emails, e.g. in.lpwrk.dev (Email Routing → this Worker). */
+  INBOUND_DOMAIN?: string;
 };
 
 export type Role = 'admin' | 'manager' | 'member';

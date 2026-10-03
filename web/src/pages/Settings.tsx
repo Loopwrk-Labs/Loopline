@@ -4,6 +4,7 @@ import { useT } from '../i18n';
 import { go, useApp } from '../state';
 import { Avatar, Icon, Modal } from '../components/ui';
 import { ChangePassword } from './Auth';
+import { exportBackup } from '../excel';
 
 function useRun() {
   const app = useApp();
@@ -320,6 +321,33 @@ function Team() {
   );
 }
 
+function Backup() {
+  const { t } = useT();
+  const app = useApp();
+  const [busy, setBusy] = useState(false);
+  if (app.me.role !== 'admin') return null;
+  const run = async () => {
+    setBusy(true);
+    try {
+      await exportBackup(await api.get('/backup'));
+    } catch (x) {
+      app.toast(x instanceof ApiError ? x.message : String(x), 'err');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div class="panel">
+      <h3>{t('backup')}</h3>
+      <p class="muted" style={{ marginTop: 0 }}>{t('backup_lede')}</p>
+      <button class="btn" disabled={busy} onClick={run}>
+        <Icon name="down" />
+        {busy ? t('loading') : t('backup_btn')}
+      </button>
+    </div>
+  );
+}
+
 export function Settings() {
   return (
     <div class="settings-grid">
@@ -330,6 +358,7 @@ export function Settings() {
       <div>
         <Profile />
         <Password />
+        <Backup />
       </div>
     </div>
   );

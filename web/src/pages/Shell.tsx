@@ -10,6 +10,12 @@ import { Sprints } from './Sprints';
 import { Epics } from './Epics';
 import { Feed } from './Feed';
 import { Settings } from './Settings';
+import { Dashboard } from './Dashboard';
+import { Backlog } from './Backlog';
+import { Metrics } from './Metrics';
+import { ProjectPage } from './ProjectPage';
+
+const VIEWS = ['dashboard', 'board', 'backlog', 'grid', 'epics', 'sprints', 'logbook', 'metrics', 'project'];
 
 export function Shell({ route }: { route: string[] }) {
   const app = useApp();
@@ -18,14 +24,14 @@ export function Shell({ route }: { route: string[] }) {
   const jumpRef = useRef<HTMLInputElement>(null);
   const [jump, setJump] = useState('');
   const { project, projects } = app;
-  const view = route[0] === 'p' ? route[2] ?? 'board' : route[0] ?? '';
+  const view = route[0] === 'p' ? route[2] ?? 'dashboard' : route[0] ?? '';
 
   // Redirect empty routes and unknown projects.
   useEffect(() => {
     if (route[0] === 'settings') return;
     if (route[0] !== 'p' || !project) {
       const first = projects.find((p) => !p.archived);
-      go(first ? `p/${first.key}/board` : 'settings');
+      go(first ? `p/${first.key}/dashboard` : 'settings');
     }
   }, [route.join('/'), project?.id, projects.length]);
 
@@ -73,12 +79,16 @@ export function Shell({ route }: { route: string[] }) {
       </a>
     );
 
-  const crumbView: Record<string, string> = { board: t('board'), grid: t('grid'), epics: t('epics'), sprints: t('sprints'), logbook: t('logbook'), i: route[3] ?? '' };
+  const crumbView: Record<string, string> = { dashboard: t('dashboard'), backlog: t('backlog'), metrics: t('metrics'), project: t('pm_project'), board: t('board'), grid: t('grid'), epics: t('epics'), sprints: t('sprints'), logbook: t('logbook'), i: route[3] ?? '' };
 
   let page = null;
   if (route[0] === 'settings') page = <Settings />;
   else if (project) {
-    if (view === 'board') page = <Board />;
+    if (view === 'dashboard') page = <Dashboard />;
+    else if (view === 'backlog') page = <Backlog />;
+    else if (view === 'metrics') page = <Metrics />;
+    else if (view === 'project') page = <ProjectPage tab={route[3] ?? 'overview'} />;
+    else if (view === 'board') page = <Board />;
     else if (view === 'grid') page = <Grid />;
     else if (view === 'epics') page = <Epics />;
     else if (view === 'sprints') page = <Sprints />;
@@ -98,7 +108,7 @@ export function Shell({ route }: { route: string[] }) {
             <select
               id="project-switch"
               value={project?.key ?? ''}
-              onChange={(e) => go(`p/${e.currentTarget.value}/${['board', 'grid', 'epics', 'sprints', 'logbook'].includes(view) ? view : 'board'}`)}
+              onChange={(e) => go(`p/${e.currentTarget.value}/${VIEWS.includes(view) ? view : 'dashboard'}`)}
             >
               {!project && <option value="">—</option>}
               {projects
@@ -113,12 +123,16 @@ export function Shell({ route }: { route: string[] }) {
         )}
         <nav class="nav">
           {project && <div class="grp">{t('nav_work')}</div>}
+          {nav('dashboard', 'dash', t('dashboard'))}
           {nav('board', 'board', t('board'))}
+          {nav('backlog', 'list', t('backlog'))}
           {nav('grid', 'grid', t('grid'))}
           {nav('epics', 'epic', t('epics'))}
           {nav('sprints', 'sprint', t('sprints'))}
           {nav('logbook', 'log', t('logbook'))}
           <div class="grp">{t('nav_ops')}</div>
+          {nav('metrics', 'metrics', t('metrics'))}
+          {nav('project', 'brief', t('pm_project'))}
           <a href="#/settings" class={route[0] === 'settings' ? 'on' : ''}>
             <Icon name="set" />
             {t('settings')}

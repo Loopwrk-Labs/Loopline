@@ -72,8 +72,14 @@ sprints.post('/sprints/:id/start', async (c) => {
   const active = await db.prepare(`SELECT name FROM sprints WHERE project_id = ? AND status = 'active'`).bind(s.project_id).first<{ name: string }>();
   if (active) fail(409, 'active_exists', `Close "${active.name}" before starting a new sprint.`);
   const today = new Date().toISOString().slice(0, 10);
+  const snap = await db
+    .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(points), 0) AS pts FROM items WHERE sprint_id = ? AND archived = 0 AND type IN ('story','bug')`)
+    .bind(s.id)
+    .first<{ n: number; pts: number }>();
   await db.batch([
-    db.prepare(`UPDATE sprints SET status = 'active', start_date = COALESCE(start_date, ?) WHERE id = ?`).bind(today, s.id),
+    db
+      .prepare(`UPDATE sprints SET status = 'active', start_date = COALESCE(start_date, ?), started_at = ?, committed_points = ?, committed_items = ? WHERE id = ?`)
+      .bind(today, now(), snap?.pts ?? 0, snap?.n ?? 0, s.id),
     db.prepare('UPDATE items SET scope_baseline = scope_hours WHERE sprint_id = ? AND scope_baseline IS NULL AND scope_hours IS NOT NULL').bind(s.id),
     changeEntry(db, { projectId: s.project_id, itemId: null, userId: c.get('user').id, field: 'sprint_started', oldValue: null, newValue: s.name }),
   ]);
@@ -97,7 +103,7 @@ sprints.post('/sprints/:id/close', async (c) => {
   const userId = c.get('user').id;
   const t = now();
   const stmts = [
-    db.prepare(`UPDATE sprints SET status = 'closed', end_date = COALESCE(end_date, ?) WHERE id = ?`).bind(new Date().toISOString().slice(0, 10), s.id),
+    db.prepare(`UPDATE sprints SET status = 'closed', end_date = COALESCE(end_date, ?), closed_at = ? WHERE id = ?`).bind(new Date().toISOString().slice(0, 10), t, s.id),
     changeEntry(db, { projectId: s.project_id, itemId: null, userId, field: 'sprint_closed', oldValue: null, newValue: s.name, at: t }),
   ];
   for (const it of open.results) {
@@ -106,4 +112,38 @@ sprints.post('/sprints/:id/close', async (c) => {
   }
   await db.batch(stmts);
   return c.json({ ok: true, moved: open.results.length });
+});
+
+/** Capacity: available hours per person for a sprint (the only manual input for metrics). */
+sprints.get('/sprints/:id/capacity', async (c) => {
+  const s = await loadSprint(c.env.DB, c.req.param('id'));
+  const { results } = await c.env.DB.prepare('SELECT user_id, hours FROM sprint_capacity WHERE sprint_id = ?').bind(s.id).all();
+  return c.json(results);
+});
+
+sprints.put('/sprints/:id/capacity', async (c) => {
+  requireRole(c, 'admin', 'manager');
+  const db = c.env.DB;
+  const s = await loadSprint(db, c.req.param('id'));
+  const b = await body<{ entries?: { user_id: string; hours: unknown }[] }>(c);
+  const entries = Array.isArray(b.entries) ? b.entries.slice(0, 50) : [];
+  const stmts = [db.prepare('DELETE FROM sprint_capacity WHERE sprint_id = ?').bind(s.id)];
+  for (const e of entries) {
+    const h = Number(e.hours);
+    if (!e.user_id || !Number.isFinite(h) || h < 0 || h > 1000) continue;
+    if (h === 0) continue;
+    stmts.push(db.prepare('INSERT INTO sprint_capacity (sprint_id, user_id, hours) VALUES (?, ?, ?)').bind(s.id, e.user_id, Math.round(h * 100) / 100));
+  }
+  await db.batch(stmts);
+  return c.json({ ok: true });
+});
+
+/** Capacity for all sprints of a project (dashboard, metrics, backlog planning). */
+sprints.get('/projects/:pid/capacity', async (c) => {
+  const { results } = await c.env.DB.prepare(
+    'SELECT sc.sprint_id, sc.user_id, sc.hours FROM sprint_capacity sc JOIN sprints s ON s.id = sc.sprint_id WHERE s.project_id = ?',
+  )
+    .bind(c.req.param('pid'))
+    .all();
+  return c.json(results);
 });
