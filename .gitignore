@@ -4,3 +4,6 @@ dist/
 .dev.vars
 *.log
 .DS_Store
+
+# Screenshots the Claude app saves into this folder
+Claude outputs/
