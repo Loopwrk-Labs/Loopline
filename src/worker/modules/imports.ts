@@ -289,7 +289,15 @@ imports.post('/imports/:id/undo', async (c) => {
   if (!imp) fail(404, 'not_found');
   if (imp.undone) fail(400, 'already_undone', 'This import was already undone.');
   if (imp.user_id !== c.get('user').id && !isManager(c)) fail(403, 'forbidden');
-  const created: string[] = JSON.parse(String(imp.created_ids));
+  const createdAll: string[] = JSON.parse(String(imp.created_ids));
+  // Items an admin has since deleted permanently are skipped.
+  const existing = new Set<string>();
+  for (let i = 0; i < createdAll.length; i += 90) {
+    const part = createdAll.slice(i, i + 90);
+    const r = await db.prepare(`SELECT id FROM items WHERE id IN (${part.map(() => '?').join(',')})`).bind(...part).all<{ id: string }>();
+    r.results.forEach((x) => existing.add(x.id));
+  }
+  const created = createdAll.filter((id) => existing.has(id));
   const updates: { id: string; before: Record<string, unknown> }[] = JSON.parse(String(imp.updates));
   const t = now();
   const userId = c.get('user').id;
@@ -301,6 +309,8 @@ imports.post('/imports/:id/undo', async (c) => {
   }
   const allowed = new Set(['type', 'title', 'description', 'status', 'assignee_id', 'sprint_id', 'parent_id', 'points', 'scope_hours', 'actual_hours', 'due_date', 'labels', 'started_at', 'done_at']);
   for (const u of updates) {
+    const still = await db.prepare('SELECT 1 AS x FROM items WHERE id = ?').bind(u.id).first();
+    if (!still) continue;
     const cols = Object.keys(u.before).filter((k) => allowed.has(k));
     if (!cols.length) continue;
     stmts.push(db.prepare(`UPDATE items SET ${cols.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).bind(...cols.map((k) => u.before[k] ?? null), t, u.id));

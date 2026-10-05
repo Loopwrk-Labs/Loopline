@@ -6,7 +6,7 @@ import { Avatar, Icon, StatusLabel, TypeBadge, VarChip } from '../components/ui'
 import { NewItemModal, ParentSelect, SprintSelect, StatusSelect, UserSelect, epicOf } from '../components/fields';
 import { DateCell, NumCell, TextCell } from '../components/cells';
 import { Entry } from '../components/LogEntry';
-import { isLate, rolled } from '../hours';
+import { descendants, isLate, rolled } from '../hours';
 
 export function ItemPage({ itemKey }: { itemKey: string }) {
   const app = useApp();
@@ -71,6 +71,20 @@ export function ItemPage({ itemKey }: { itemKey: string }) {
     }
   };
 
+  const deletePerm = async () => {
+    const kids = descendants(app.items, [it.id]).length;
+    const msg = (kids ? t('delete_confirm_kids') : t('delete_confirm_one')).replace('{key}', it.key).replace('{n}', String(kids));
+    if (!window.confirm(msg)) return;
+    try {
+      const r = await api.post<{ deleted: number }>('/items/delete', { ids: [it.id], cascade: true });
+      await app.reloadProject();
+      app.toast(t('deleted_n').replace('{n}', String(r.deleted)));
+      go(`p/${project!.key}/board`);
+    } catch (x) {
+      app.toast(x instanceof ApiError ? x.message : 'Network error.', 'err');
+    }
+  };
+
   return (
     <div class="detail">
       <div class="d-left">
@@ -100,6 +114,11 @@ export function ItemPage({ itemKey }: { itemKey: string }) {
               <button class="btn ghost sm danger" onClick={archive}>
                 {t('archive')}
               </button>
+              {app.me.role === 'admin' && (
+                <button class="btn ghost sm danger" onClick={deletePerm} id="item-delete" title={t('delete_perm')}>
+                  {t('delete_perm')}
+                </button>
+              )}
             </span>
           </div>
           <TextCell cls="d-title" value={it.title} onCommit={(v) => save({ title: v })} id="item-title" />

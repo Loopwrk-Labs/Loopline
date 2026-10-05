@@ -7,7 +7,7 @@ import { ImportModal } from '../components/ImportModal';
 import { exportItems } from '../excel';
 import { ParentSelect, SprintSelect, StatusSelect, UserSelect, epicOf } from '../components/fields';
 import { DateCell, NumCell, TextCell } from '../components/cells';
-import { isLate, isLeaf, rolled } from '../hours';
+import { descendants, isLate, isLeaf, rolled } from '../hours';
 
 export function Grid() {
   const app = useApp();
@@ -23,6 +23,15 @@ export function Grid() {
   const [views, setViews] = useState<SavedView[]>([]);
   const [viewId, setViewId] = useState('');
   const [saving, setSaving] = useState<{ name: string; shared: boolean } | null>(null);
+  const isAdmin = app.me.role === 'admin';
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  useEffect(() => setPicked(new Set()), [project?.id]);
+  const togglePick = (id: string) =>
+    setPicked((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
 
   const loadViews = () => api.get<SavedView[]>(`/projects/${project!.id}/views`).then(setViews).catch(() => {});
   useEffect(() => {
@@ -98,6 +107,22 @@ export function Grid() {
 
   const save = (id: string, patch: Partial<Item>) => app.saveItem(id, patch);
 
+  const pickedIds = [...picked].filter((id) => items.some((i) => i.id === id));
+  const allPicked = rows.length > 0 && rows.every((r) => picked.has(r.id));
+  const deletePicked = async () => {
+    if (!pickedIds.length) return;
+    const total = pickedIds.length + descendants(items, pickedIds).length;
+    if (!window.confirm(t('delete_confirm_many').replace('{n}', String(total)))) return;
+    try {
+      const r = await api.post<{ deleted: number }>('/items/delete', { ids: pickedIds, cascade: true });
+      setPicked(new Set());
+      await app.reloadProject();
+      app.toast(t('deleted_n').replace('{n}', String(r.deleted)));
+    } catch (x) {
+      app.toast(x instanceof ApiError ? x.message : 'Network error.', 'err');
+    }
+  };
+
   const addRow = async (e: Event) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
@@ -118,7 +143,12 @@ export function Grid() {
     const h = rolled(items, r);
     const lockedActual = r.status === 'done' && app.me.role === 'member';
     return (
-      <tr key={r.id}>
+      <tr key={r.id} class={picked.has(r.id) ? 'picked' : undefined}>
+        {isAdmin && (
+          <td class="pick">
+            <input type="checkbox" checked={picked.has(r.id)} onChange={() => togglePick(r.id)} aria-label={r.key} />
+          </td>
+        )}
         <td class="k">
           <a href={`#/p/${project!.key}/i/${r.key}`}>{r.key}</a>
         </td>
@@ -185,6 +215,11 @@ export function Grid() {
               <button class="btn sm" onClick={() => setSaving({ name: '', shared: true })}>{t('save_view')}</button>
             )}
           </span>
+          {isAdmin && pickedIds.length > 0 && (
+            <button class="btn danger" id="grid-delete" onClick={deletePicked}>
+              {t('delete_selected')} ({pickedIds.length})
+            </button>
+          )}
           <button class="btn" onClick={() => setImporting(true)}>
             <Icon name="up" />
             {t('import_excel')}
@@ -224,6 +259,17 @@ export function Grid() {
         <table class="sheet">
           <thead>
             <tr>
+              {isAdmin && (
+                <th class="pick">
+                  <input
+                    type="checkbox"
+                    checked={allPicked}
+                    title={t('select_all')}
+                    aria-label={t('select_all')}
+                    onChange={() => setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.id)))}
+                  />
+                </th>
+              )}
               <th>{t('f_key')}</th>
               <th>T</th>
               <th>{t('f_title')}</th>
@@ -243,7 +289,7 @@ export function Grid() {
               <>
                 {byEpic && typeSel !== 'epic' && (
                   <tr class="grp">
-                    <td colSpan={12} class="grpc">
+                    <td colSpan={isAdmin ? 13 : 12} class="grpc">
                       {g.epic ? g.epic.title : t('no_epic')}
                       {g.epic && <span class="key">{g.epic.key}</span>}
                       <span class="key">· {g.rows.length}</span>

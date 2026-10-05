@@ -40,3 +40,17 @@ export function leafItemsUnder(items: Item[], epicId: string) {
 }
 
 export const isLate = (it: Item) => !!it.due_date && it.status !== 'done' && it.due_date < new Date().toISOString().slice(0, 10);
+
+/** All descendants of the given items (epic > story/bug > task), the items themselves excluded. */
+export function descendants(items: Item[], ids: string[]): Item[] {
+  const out: Item[] = [];
+  const seen = new Set(ids);
+  let frontier = ids;
+  while (frontier.length) {
+    const kids = items.filter((i) => i.parent_id && frontier.includes(i.parent_id) && !seen.has(i.id));
+    kids.forEach((k) => seen.add(k.id));
+    out.push(...kids);
+    frontier = kids.map((k) => k.id);
+  }
+  return out;
+}

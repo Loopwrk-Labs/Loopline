@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv, ItemType, Status } from '../lib/types';
 import { STATUSES, TYPES } from '../lib/types';
-import { body, date, fail, isManager, now, num, str, uid } from '../lib/http';
+import { body, date, fail, isManager, now, num, requireRole, str, uid } from '../lib/http';
 import { getProject } from './projects';
 import { changeEntry } from './logbook';
 
@@ -288,4 +288,62 @@ items.delete('/items/:id', async (c) => {
     changeEntry(db, { projectId: cur.project_id, itemId: cur.id, userId: c.get('user').id, field: 'archived', oldValue: null, newValue: cur.key }),
   ]);
   return c.json({ ok: true });
+});
+
+/**
+ * Admin only: permanently delete items. With cascade (default) every descendant goes too
+ * (epic -> stories/bugs -> tasks), archived ones included. Their Logbook entries are removed,
+ * links from correspondence / approvals / decisions are cleared, and one project-level
+ * Logbook entry records what was deleted.
+ */
+items.post('/items/delete', async (c) => {
+  requireRole(c, 'admin');
+  const db = c.env.DB;
+  const b = await body<{ ids?: unknown; cascade?: boolean }>(c);
+  const ids = Array.isArray(b.ids) ? b.ids.filter((x): x is string => typeof x === 'string').slice(0, 500) : [];
+  if (!ids.length) fail(400, 'empty', 'Nothing selected.');
+  const cascade = b.cascade !== false;
+
+  const roots = (
+    await db.prepare(`SELECT id, key, title, type, project_id, parent_id FROM items WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<Item>()
+  ).results;
+  if (!roots.length) fail(404, 'not_found', 'Item not found.');
+  const projectId = roots[0].project_id;
+  if (roots.some((r) => r.project_id !== projectId)) fail(400, 'mixed_projects', 'Select items from one project at a time.');
+
+  // Collect descendants level by level (max depth is 3: epic > story > task).
+  const all = new Map(roots.map((r) => [r.id, r]));
+  let frontier = roots.map((r) => r.id);
+  for (let depth = 0; depth < 4 && frontier.length; depth++) {
+    const kids = (
+      await db.prepare(`SELECT id, key, title, type, project_id, parent_id FROM items WHERE parent_id IN (${frontier.map(() => '?').join(',')})`).bind(...frontier).all<Item>()
+    ).results.filter((k) => !all.has(k.id));
+    if (kids.length && !cascade) fail(409, 'has_children', 'This item has child items. Delete them too, or move them first.');
+    kids.forEach((k) => all.set(k.id, k));
+    frontier = kids.map((k) => k.id);
+  }
+
+  // Children first so parent_id references never dangle.
+  const depthOf = (it: Item): number => (it.parent_id && all.has(it.parent_id) ? 1 + depthOf(all.get(it.parent_id)!) : 0);
+  const ordered = [...all.values()].sort((a, b2) => depthOf(b2) - depthOf(a));
+  const stmts: D1PreparedStatement[] = [];
+  for (const it of ordered) {
+    stmts.push(db.prepare('DELETE FROM logbook WHERE item_id = ?').bind(it.id));
+    for (const tbl of ['correspondence', 'approvals', 'decisions']) stmts.push(db.prepare(`UPDATE ${tbl} SET item_id = NULL WHERE item_id = ?`).bind(it.id));
+    stmts.push(db.prepare('DELETE FROM items WHERE id = ?').bind(it.id));
+  }
+  const keys = roots.map((r) => r.key).join(', ');
+  const extra = all.size - roots.length;
+  stmts.push(
+    changeEntry(db, {
+      projectId,
+      itemId: null,
+      userId: c.get('user').id,
+      field: 'deleted',
+      oldValue: roots.length === 1 ? `${roots[0].key} ${roots[0].title}` : keys,
+      newValue: extra ? `${all.size} items incl. ${extra} child items` : `${all.size} item${all.size === 1 ? '' : 's'}`,
+    }),
+  );
+  for (let i = 0; i < stmts.length; i += 400) await db.batch(stmts.slice(i, i + 400));
+  return c.json({ ok: true, deleted: all.size });
 });

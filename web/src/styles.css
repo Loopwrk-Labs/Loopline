@@ -192,6 +192,10 @@ table.sheet { width: 100%; min-width: 1240px; border-collapse: collapse; font-si
 .sheet td.k { padding: 0 8px; font: .7rem var(--mono); }
 .sheet td.k a { text-decoration: none; }
 .sheet td.k a:hover { text-decoration: underline; }
+.sheet td.pick, .sheet th.pick { width: 28px; padding: 0 0 0 10px; }
+.sheet td.pick input, .sheet th.pick input { width: 14px; height: 14px; accent-color: var(--ink); cursor: pointer; vertical-align: middle; }
+.sheet tr.picked td { background: var(--glass-strong); }
+.btn.danger { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
 .sheet tr.grp td { background: var(--side); color: var(--ink); font-weight: 600; font-size: .78rem; border-right: none; padding: 7px 10px; height: auto; }
 .sheet tr.grp td .key { margin-left: 8px; font-weight: 400; }
 .sheet tr:hover td:not(.grpc) { background: var(--glass); }

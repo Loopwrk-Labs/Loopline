@@ -62,6 +62,7 @@ export function Entry({ e, showItem, onPin }: { e: LogEntry; showItem?: (key: st
   let text;
   if (f === 'created') text = <>{t('created_item')} · {val('type', e.new_value, t, lang)}</>;
   else if (f === 'archived') text = <>{t('archived_item')}</>;
+  else if (f === 'deleted') text = <>{t('deleted_items')} {e.old_value} ({e.new_value})</>;
   else if (f === 'sprint_started') text = <>{t('sprint_started')} {e.new_value}</>;
   else if (f === 'sprint_closed') text = <>{t('sprint_closed')} {e.new_value}</>;
   else
