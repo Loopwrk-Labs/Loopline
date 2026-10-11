@@ -88,8 +88,11 @@ a { color: inherit; }
 
 /* ---------- brand ---------- */
 .brand { display: flex; align-items: center; gap: .55rem; color: var(--ink); text-decoration: none; }
-.brand svg { height: 15px; width: auto; display: block; }
-.brand .dot { width: 4px; height: 4px; background: var(--red); border-radius: 1px; box-shadow: 0 0 5px rgba(255,8,0,.7); margin-left: -5px; align-self: flex-end; }
+/* Wordmark: identical geometry to lpwrk.dev (.wm-mark / .wordmark .dot), sized by font-size */
+.brand .wordmark { font-size: 1rem; display: inline-flex; align-items: baseline; color: var(--ink); }
+.brand .wm-mark { display: inline-block; position: relative; height: 1.0191em; width: 4.4627em; vertical-align: baseline; flex: none; overflow: visible; }
+.brand .wm-mark svg { position: absolute; left: 0; bottom: -.2809em; height: 1.3em; width: 4.4627em; display: block; color: inherit; }
+.brand .dot { width: .11em; height: .11em; background: var(--red); box-shadow: 0 0 .3em rgba(255,8,0,.55); border-radius: 14%; margin-left: .06em; display: inline-block; position: relative; top: .0375em; }
 .brand em { font-style: normal; font: 500 .62rem/1 var(--mono); letter-spacing: .14em; color: var(--faint); text-transform: uppercase; border-left: 1px solid var(--hair-strong); padding-left: .5rem; }
 
 /* ---------- shell ---------- */

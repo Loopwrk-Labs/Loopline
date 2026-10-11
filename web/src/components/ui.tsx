@@ -7,8 +7,11 @@ import { useT } from '../i18n';
 export function Brand() {
   return (
     <span class="brand">
-      <span dangerouslySetInnerHTML={{ __html: wm }} style={{ display: 'contents' }} />
-      <span class="dot" />
+      {/* Same markup and proportions as the lpwrk.dev header wordmark */}
+      <span class="wordmark">
+        <span class="wm-mark" dangerouslySetInnerHTML={{ __html: wm }} />
+        <span class="dot" />
+      </span>
       <em>Loopline</em>
     </span>
   );
