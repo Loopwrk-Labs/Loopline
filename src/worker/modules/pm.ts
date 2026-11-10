@@ -5,6 +5,7 @@ import { body, date, fail, isManager, now, num, requireRole, str, uid } from '..
 import { randomHex, sha256 } from '../lib/crypto';
 import { getProject } from './projects';
 import { sanitizeRichText } from '../lib/richtext';
+import { autoSubject } from '../lib/subject';
 
 /**
  * Project management: client correspondence, customer acceptance and change
@@ -30,14 +31,19 @@ pm.post('/projects/:pid/correspondence', async (c) => {
   const pid = c.req.param('pid');
   await getProject(c.env.DB, pid);
   const b = await body(c);
-  const subject = str(b.subject, 300);
+  let subject = str(b.subject, 300);
   const text = str(b.body, 100000);
   if (!subject && !text) fail(400, 'empty', 'Add a subject or the message text.');
   const sentOn = date(b.sent_on);
   const time = typeof b.sent_time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(b.sent_time) ? b.sent_time : '12:00';
   const offset = Number.isFinite(Number(b.tz_offset)) ? Number(b.tz_offset) : 0; // browser getTimezoneOffset(), minutes
   let replyTo = str(b.reply_to, 64);
-  if (replyTo && !(await c.env.DB.prepare('SELECT 1 FROM correspondence WHERE id = ? AND project_id = ?').bind(replyTo, pid).first())) replyTo = null;
+  const parent = replyTo
+    ? await c.env.DB.prepare('SELECT subject FROM correspondence WHERE id = ? AND project_id = ?').bind(replyTo, pid).first<{ subject: string | null }>()
+    : null;
+  if (!parent) replyTo = null;
+  // No subject typed: a reply takes "Re: <parent subject>", a new thread gets a title from its first sentence.
+  if (!subject) subject = parent?.subject ? (/^re:/i.test(parent.subject) ? parent.subject : `Re: ${parent.subject}`) : autoSubject(text);
   const id = uid();
   await c.env.DB.prepare(
     `INSERT INTO correspondence (id, project_id, item_id, reply_to, source, direction, from_addr, to_addr, subject, body, body_html, sent_at, created_by, created_at)

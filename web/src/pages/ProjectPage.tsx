@@ -3,6 +3,7 @@ import { api, ApiError, type Item } from '../api';
 import { fmtDate, fmtNum, fmtStamp, useT } from '../i18n';
 import { go, useApp } from '../state';
 import { Icon, Modal } from '../components/ui';
+import { autoSubject } from '../subject';
 import { RichEditor, cleanHtml, highlightHtml, textToHtml } from '../components/RichEditor';
 import { isLeaf } from '../hours';
 import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
@@ -645,7 +646,7 @@ function Correspondence() {
           return (
             <section class="thread">
               <header class="thread-h">
-                <b>{first.subject ? hl(first.subject) : '—'}</b>
+                <b>{first.subject ? hl(first.subject) : <span class="auto-title">{hl(autoSubject(first.body) ?? '—')}</span>}</b>
                 <span class="meta">
                   {ms.length} {ms.length % 10 === 1 && ms.length % 100 !== 11 ? t('pm_message') : [2, 3, 4].includes(ms.length % 10) && ![12, 13, 14].includes(ms.length % 100) ? t('pm_messages_few') : t('pm_messages')} · {fmtStamp(ms[ms.length - 1].sent_at, lang)}
                 </span>
@@ -724,7 +725,7 @@ function Correspondence() {
             </div>
             <label class="field">
               <span class="label">{t('pm_subject')}</span>
-              <input class="input" value={add.subject ?? ''} onInput={(e) => setAdd({ ...add, subject: e.currentTarget.value })} />
+              <input class="input" placeholder={t('pm_subject_auto')} value={add.subject ?? ''} onInput={(e) => setAdd({ ...add, subject: e.currentTarget.value })} />
             </label>
             <div class="field">
               <span class="label">{t('pm_body')}</span>

@@ -314,6 +314,7 @@ export const en = {
   pm_mail_lede: "Correspondence grouped by subject. Messages in order, latest activity at the bottom.",
   pm_add_mail: "Add email",
   pm_mail_empty: "No correspondence yet.",
+  pm_subject_auto: "Leave empty for an automatic title from the first sentence",
   pm_filter_firm: "Show only this company",
   pm_clear_filter: "Clear filter",
   rt_toolbar: "Formatting",
