@@ -335,7 +335,7 @@ function Correspondence() {
   const threads = [...groups.values()]
     .map((ms) => [...ms].sort((a, b) => a.sent_at - b.sent_at))
     .filter((ms) => !ql || ms.some((m) => `${m.subject} ${m.from_addr} ${m.to_addr} ${m.body}`.toLowerCase().includes(ql)))
-    .sort((a, b) => b[b.length - 1].sent_at - a[a.length - 1].sent_at);
+    .sort((a, b) => a[a.length - 1].sent_at - b[b.length - 1].sent_at);
 
   const now = new Date();
   const blank = (extra: Record<string, string> = {}) => ({
@@ -392,7 +392,7 @@ function Correspondence() {
               <header class="thread-h">
                 <b>{first.subject || '—'}</b>
                 <span class="meta">
-                  {ms.length} {ms.length === 1 ? t('pm_message') : t('pm_messages')} · {fmtStamp(ms[ms.length - 1].sent_at, lang)}
+                  {ms.length} {ms.length % 10 === 1 && ms.length % 100 !== 11 ? t('pm_message') : [2, 3, 4].includes(ms.length % 10) && ![12, 13, 14].includes(ms.length % 100) ? t('pm_messages_few') : t('pm_messages')} · {fmtStamp(ms[ms.length - 1].sent_at, lang)}
                 </span>
               </header>
               <ol class="tl">
