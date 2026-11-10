@@ -216,20 +216,122 @@ function Overview() {
   );
 }
 
-// ---------------- correspondence ----------------
+// ---------------- correspondence (Threads-style) ----------------
+const SENDER_COLORS = ['red', 'orange', 'amber', 'green', 'teal', 'blue', 'violet', 'pink', 'grey'] as const;
+type SenderColor = (typeof SENDER_COLORS)[number];
+
+/** "Ana Petrović <ana@klijent.com>" → name + email; a bare address keeps the address as the name. */
+function parseAddr(raw: string | null): { name: string; email: string } {
+  const s = (raw ?? '').trim();
+  const m = s.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  if (m) return { name: m[1].trim() || m[2].trim(), email: m[2].trim().toLowerCase() };
+  if (/@/.test(s)) return { name: s.split(',')[0].trim(), email: s.split(',')[0].trim().toLowerCase() };
+  return { name: s, email: '' };
+}
+const senderKey = (raw: string | null) => {
+  const a = parseAddr(raw);
+  return (a.email || a.name || 'unknown').toLowerCase();
+};
+function initialsFrom(name: string): string {
+  const base = name.includes('@') ? name.split('@')[0].replace(/[._-]+/g, ' ') : name;
+  const parts = base.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  return ((parts[0][0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : parts[0][1] ?? '')).toUpperCase();
+}
+/** Stable default colour per sender (grey is never auto-assigned). */
+function autoColor(key: string): SenderColor {
+  let h = 0;
+  for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return SENDER_COLORS[h % (SENDER_COLORS.length - 1)];
+}
+const threadKeyOf = (m: Mail) => {
+  const subj = (m.subject ?? '').replace(/^\s*((re|fw|fwd|aw|odg|sv)\s*(\[\d+\])?\s*:\s*)+/i, '').trim().toLowerCase();
+  return subj || `#${m.id}`;
+};
+
+function ColorPicker({ value, onPick, onClose }: { value: SenderColor; onPick: (c: SenderColor) => void; onClose: () => void }) {
+  const { t } = useT();
+  useEffect(() => {
+    const off = (e: MouseEvent) => !(e.target as HTMLElement).closest('.swatches') && onClose();
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    setTimeout(() => addEventListener('mousedown', off), 0);
+    addEventListener('keydown', esc);
+    return () => {
+      removeEventListener('mousedown', off);
+      removeEventListener('keydown', esc);
+    };
+  }, []);
+  return (
+    <div class="swatches" role="dialog" aria-label={t('pm_sender_color')}>
+      {SENDER_COLORS.map((c) => (
+        <button type="button" class={'sw sc-' + c + (c === value ? ' on' : '')} aria-label={c} aria-pressed={c === value} onClick={() => onPick(c)} />
+      ))}
+    </div>
+  );
+}
+
 function Correspondence() {
   const app = useApp();
   const { t, lang } = useT();
   const run = useRun();
   const [rows, setRows] = useState<Mail[]>([]);
-  const [open, setOpen] = useState<string | null>(null);
+  const [colors, setColors] = useState<Record<string, SenderColor>>({});
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [linking, setLinking] = useState<string | null>(null);
+  const [picking, setPicking] = useState<string | null>(null);
   const [add, setAdd] = useState<Record<string, string> | null>(null);
   const [q, setQ] = useState('');
-  const load = () => api.get<Mail[]>(`/projects/${app.project!.id}/correspondence`).then(setRows).catch(() => {});
+  const pid = app.project!.id;
+  const load = () => api.get<Mail[]>(`/projects/${pid}/correspondence`).then(setRows).catch(() => {});
+  const loadColors = () =>
+    api
+      .get<{ sender_key: string; color: SenderColor }[]>(`/projects/${pid}/senders`)
+      .then((r) => setColors(Object.fromEntries(r.map((x) => [x.sender_key, x.color]))))
+      .catch(() => {});
   useEffect(() => {
     load();
-  }, [app.project?.id]);
-  const shown = rows.filter((m) => !q || `${m.subject} ${m.from_addr} ${m.body}`.toLowerCase().includes(q.toLowerCase()));
+    loadColors();
+  }, [pid]);
+
+  const colorOf = (key: string): SenderColor => colors[key] ?? autoColor(key);
+  const setColor = async (key: string, color: SenderColor) => {
+    setColors({ ...colors, [key]: color });
+    setPicking(null);
+    await run(() => api.put(`/projects/${pid}/senders`, { sender_key: key, color }));
+  };
+
+  // Senders (legend) and threads grouped by subject, oldest message first inside a thread.
+  const senders = new Map<string, { name: string; email: string; n: number }>();
+  for (const m of rows) {
+    const k = senderKey(m.from_addr);
+    const a = parseAddr(m.from_addr);
+    const cur = senders.get(k);
+    senders.set(k, { name: cur?.name || a.name || a.email || t('pm_unknown_sender'), email: a.email, n: (cur?.n ?? 0) + 1 });
+  }
+  const groups = new Map<string, Mail[]>();
+  for (const m of rows) {
+    const k = threadKeyOf(m);
+    groups.set(k, [...(groups.get(k) ?? []), m]);
+  }
+  const ql = q.trim().toLowerCase();
+  const threads = [...groups.values()]
+    .map((ms) => [...ms].sort((a, b) => a.sent_at - b.sent_at))
+    .filter((ms) => !ql || ms.some((m) => `${m.subject} ${m.from_addr} ${m.to_addr} ${m.body}`.toLowerCase().includes(ql)))
+    .sort((a, b) => b[b.length - 1].sent_at - a[a.length - 1].sent_at);
+
+  const now = new Date();
+  const blank = (extra: Record<string, string> = {}) => ({
+    direction: 'in',
+    sent_on: now.toISOString().slice(0, 10),
+    sent_time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+    tz_offset: String(now.getTimezoneOffset()),
+    ...extra,
+  });
+  const toggle = (id: string) => {
+    const n = new Set(expanded);
+    n.has(id) ? n.delete(id) : n.add(id);
+    setExpanded(n);
+  };
 
   return (
     <>
@@ -237,51 +339,144 @@ function Correspondence() {
         <span class="meta">{t('pm_mail_lede')}</span>
         <div class="row sp">
           <input class="input" style={{ width: '220px' }} placeholder={t('filter_ph')} value={q} onInput={(e) => setQ(e.currentTarget.value)} />
-          <button class="btn solid" onClick={() => setAdd({ direction: 'in', sent_on: new Date().toISOString().slice(0, 10) })}>
+          <button class="btn solid" onClick={() => setAdd(blank())}>
             <Icon name="plus" />
             {t('pm_add_mail')}
           </button>
         </div>
       </div>
-      {!shown.length && <div class="empty">{t('pm_mail_empty')}</div>}
-      {shown.map((m) => {
-        const atts = (() => {
-          try {
-            return JSON.parse(m.attachments) as { name: string }[];
-          } catch {
-            return [];
-          }
-        })();
-        return (
-          <div class="mail">
-            <div class="mail-h" onClick={() => setOpen(open === m.id ? null : m.id)}>
-              <span class={'tag' + (m.direction === 'out' ? ' on' : '')}>{m.direction === 'out' ? t('pm_out') : t('pm_in')}</span>
-              <b>{m.subject || '—'}</b>
-              <span class="meta">{m.from_addr}</span>
-              <time>{fmtStamp(m.sent_at, lang)}</time>
-            </div>
-            {open === m.id && (
-              <>
-                <div class="mail-b">{m.body}</div>
-                <div class="mail-f">
-                  <span>
-                    {t('pm_to')}: {m.to_addr || '—'}
-                    {m.cc_addr ? ` · CC: ${m.cc_addr}` : ''}
-                  </span>
-                  {atts.length > 0 && <span>{t('pm_attachments')}: {atts.map((a) => a.name).join(', ')}</span>}
-                  <span>{m.source === 'email' ? t('pm_src_email') : `${t('pm_src_manual')} · ${m.created_by_name ?? ''}`}</span>
-                  <span style={{ marginLeft: 'auto' }} class="row">
-                    {t('pm_link_item')}
-                    <span style={{ width: '220px' }}>
-                      <ItemPick value={m.item_id} onChange={async (v) => (await run(() => api.patch(`/correspondence/${m.id}`, { item_id: v }))) && load()} />
-                    </span>
-                  </span>
-                </div>
-              </>
-            )}
-          </div>
-        );
-      })}
+
+      {senders.size > 0 && (
+        <div class="senders" aria-label={t('pm_senders')}>
+          <span class="senders-l">{t('pm_senders')}</span>
+          {[...senders.entries()]
+            .sort((a, b) => b[1].n - a[1].n)
+            .map(([k, s]) => (
+              <span class="sender-chip-wrap">
+                <button type="button" class={'sender-chip sc-' + colorOf(k)} title={`${s.email || s.name} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === `legend:${k}` ? null : `legend:${k}`)}>
+                  <i />
+                  {s.name}
+                  <small>{s.n}</small>
+                </button>
+                {picking === `legend:${k}` && <ColorPicker value={colorOf(k)} onPick={(c) => setColor(k, c)} onClose={() => setPicking(null)} />}
+              </span>
+            ))}
+        </div>
+      )}
+
+      {!threads.length && <div class="empty">{t('pm_mail_empty')}</div>}
+
+      <div class="threads">
+        {threads.map((ms) => {
+          const first = ms[0];
+          return (
+            <section class="thread">
+              <header class="thread-h">
+                <b>{first.subject || '—'}</b>
+                <span class="meta">
+                  {ms.length} {ms.length === 1 ? t('pm_message') : t('pm_messages')} · {fmtStamp(ms[ms.length - 1].sent_at, lang)}
+                </span>
+              </header>
+              <ol class="tl">
+                {ms.map((m, i) => {
+                  const k = senderKey(m.from_addr);
+                  const a = parseAddr(m.from_addr);
+                  const name = a.name || a.email || t('pm_unknown_sender');
+                  const color = colorOf(k);
+                  const atts = (() => {
+                    try {
+                      return JSON.parse(m.attachments) as { name: string }[];
+                    } catch {
+                      return [];
+                    }
+                  })();
+                  const long = m.body.length > 520 || m.body.split('\n').length > 9;
+                  const open = expanded.has(m.id);
+                  return (
+                    <li class={'tl-item sc-' + color + (i === ms.length - 1 ? ' last' : '')}>
+                      <div class="tl-rail">
+                        <button type="button" class="tl-av" title={t('pm_sender_color')} aria-label={`${name} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === m.id ? null : m.id)}>
+                          {initialsFrom(name)}
+                        </button>
+                        {picking === m.id && <ColorPicker value={color} onPick={(c) => setColor(k, c)} onClose={() => setPicking(null)} />}
+                      </div>
+                      <article class="tl-box">
+                        <div class="tl-h">
+                          <b>{name}</b>
+                          {a.email && a.email !== name.toLowerCase() && <span class="meta">{a.email}</span>}
+                          <span class={'tag' + (m.direction === 'out' ? ' on' : '')}>{m.direction === 'out' ? t('pm_out') : t('pm_in')}</span>
+                          <time>{fmtStamp(m.sent_at, lang)}</time>
+                        </div>
+                        {(m.to_addr || m.cc_addr) && (
+                          <div class="tl-to">
+                            {t('pm_to')}: {m.to_addr || '—'}
+                            {m.cc_addr ? ` · CC: ${m.cc_addr}` : ''}
+                          </div>
+                        )}
+                        <div class={'tl-body' + (long && !open ? ' clamp' : '')}>{m.body || <span class="faint">—</span>}</div>
+                        {long && (
+                          <button type="button" class="linkbtn" onClick={() => toggle(m.id)}>
+                            {open ? t('pm_show_less') : t('pm_show_more')}
+                          </button>
+                        )}
+                        <div class="tl-f">
+                          {atts.length > 0 && (
+                            <span>
+                              📎 {atts.map((x) => x.name).join(', ')}
+                            </span>
+                          )}
+                          <span>{m.source === 'email' ? t('pm_src_email') : `${t('pm_src_manual')}${m.created_by_name ? ' · ' + m.created_by_name : ''}`}</span>
+                          {m.item_key && linking !== m.id && (
+                            <a class="item-chip" href={`#/p/${app.project!.key}/i/${m.item_key}`}>
+                              {m.item_key}
+                            </a>
+                          )}
+                          <span class="tl-actions">
+                            {linking === m.id ? (
+                              <span style={{ width: '240px' }}>
+                                <ItemPick
+                                  value={m.item_id}
+                                  onChange={async (v) => {
+                                    if (await run(() => api.patch(`/correspondence/${m.id}`, { item_id: v }))) {
+                                      setLinking(null);
+                                      load();
+                                    }
+                                  }}
+                                />
+                              </span>
+                            ) : (
+                              <button type="button" class="linkbtn" onClick={() => setLinking(m.id)}>
+                                {m.item_key ? t('pm_change_link') : t('pm_link_item')}
+                              </button>
+                            )}
+                          </span>
+                        </div>
+                      </article>
+                    </li>
+                  );
+                })}
+              </ol>
+              <button
+                type="button"
+                class="btn sm thread-add"
+                onClick={() =>
+                  setAdd(
+                    blank({
+                      direction: 'out',
+                      subject: first.subject ? (/^re:/i.test(first.subject) ? first.subject : `Re: ${first.subject}`) : '',
+                      to_addr: ms[ms.length - 1].direction === 'in' ? ms[ms.length - 1].from_addr ?? '' : ms[ms.length - 1].to_addr ?? '',
+                    }),
+                  )
+                }
+              >
+                <Icon name="plus" />
+                {t('pm_add_to_thread')}
+              </button>
+            </section>
+          );
+        })}
+      </div>
+
       {add && (
         <Modal
           title={t('pm_add_mail')}
@@ -293,7 +488,7 @@ function Correspondence() {
               <button
                 class="btn solid"
                 onClick={async () => {
-                  if (await run(() => api.post(`/projects/${app.project!.id}/correspondence`, add))) {
+                  if (await run(() => api.post(`/projects/${pid}/correspondence`, add))) {
                     setAdd(null);
                     load();
                   }
@@ -305,7 +500,7 @@ function Correspondence() {
           }
         >
           <div class="form">
-            <div class="two">
+            <div class="three">
               <div class="field">
                 <span class="label">{t('pm_direction')}</span>
                 <div class="seg">
@@ -320,11 +515,15 @@ function Correspondence() {
                 <span class="label">{t('pm_date')}</span>
                 <input class="input" type="date" value={add.sent_on} onInput={(e) => setAdd({ ...add, sent_on: e.currentTarget.value })} />
               </label>
+              <label class="field">
+                <span class="label">{t('pm_time')}</span>
+                <input class="input" type="time" value={add.sent_time} onInput={(e) => setAdd({ ...add, sent_time: e.currentTarget.value })} />
+              </label>
             </div>
             <div class="two">
               <label class="field">
                 <span class="label">{t('pm_from')}</span>
-                <input class="input" value={add.from_addr ?? ''} onInput={(e) => setAdd({ ...add, from_addr: e.currentTarget.value })} />
+                <input class="input" placeholder="Ime Prezime <ime@firma.com>" value={add.from_addr ?? ''} onInput={(e) => setAdd({ ...add, from_addr: e.currentTarget.value })} />
               </label>
               <label class="field">
                 <span class="label">{t('pm_to')}</span>

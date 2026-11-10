@@ -17,7 +17,7 @@ pm.get('/projects/:pid/correspondence', async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT c.*, i.key AS item_key, u.name AS created_by_name FROM correspondence c
      LEFT JOIN items i ON i.id = c.item_id LEFT JOIN users u ON u.id = c.created_by
-     WHERE c.project_id = ? ORDER BY c.sent_at DESC LIMIT 500`,
+     WHERE c.project_id = ? ORDER BY c.sent_at DESC, c.created_at DESC LIMIT 500`,
   )
     .bind(c.req.param('pid'))
     .all();
@@ -32,6 +32,8 @@ pm.post('/projects/:pid/correspondence', async (c) => {
   const text = str(b.body, 100000);
   if (!subject && !text) fail(400, 'empty', 'Add a subject or the message text.');
   const sentOn = date(b.sent_on);
+  const time = typeof b.sent_time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(b.sent_time) ? b.sent_time : '12:00';
+  const offset = Number.isFinite(Number(b.tz_offset)) ? Number(b.tz_offset) : 0; // browser getTimezoneOffset(), minutes
   const id = uid();
   await c.env.DB.prepare(
     `INSERT INTO correspondence (id, project_id, item_id, source, direction, from_addr, to_addr, subject, body, sent_at, created_by, created_at)
@@ -39,7 +41,7 @@ pm.post('/projects/:pid/correspondence', async (c) => {
   )
     .bind(
       id, pid, str(b.item_id, 64), b.direction === 'out' ? 'out' : 'in', str(b.from_addr, 300), str(b.to_addr, 500), subject, text ?? '',
-      sentOn ? Date.parse(sentOn + 'T12:00:00Z') : now(), c.get('user').id, now(),
+      sentOn ? Date.parse(`${sentOn}T${time}:00Z`) + offset * 60_000 : now(), c.get('user').id, now(),
     )
     .run();
   return c.json({ id });
@@ -49,6 +51,31 @@ pm.patch('/correspondence/:id', async (c) => {
   const b = await body(c);
   const r = await c.env.DB.prepare('UPDATE correspondence SET item_id = ? WHERE id = ?').bind(str(b.item_id, 64), c.req.param('id')).run();
   if (!r.meta.changes) fail(404, 'not_found');
+  return c.json({ ok: true });
+});
+
+// Sender colours for the Threads-style correspondence view. Anyone on the team may change them.
+const SENDER_COLORS = ['red', 'orange', 'amber', 'green', 'teal', 'blue', 'violet', 'pink', 'grey'];
+
+pm.get('/projects/:pid/senders', async (c) => {
+  const { results } = await c.env.DB.prepare('SELECT sender_key, color FROM correspondence_senders WHERE project_id = ?').bind(c.req.param('pid')).all();
+  return c.json(results);
+});
+
+pm.put('/projects/:pid/senders', async (c) => {
+  const pid = c.req.param('pid');
+  await getProject(c.env.DB, pid);
+  const b = await body(c);
+  const key = str(b.sender_key, 300)?.toLowerCase();
+  const color = String(b.color ?? '');
+  if (!key) fail(400, 'bad_sender', 'Missing sender.');
+  if (!SENDER_COLORS.includes(color)) fail(400, 'bad_color', 'Unknown colour.');
+  await c.env.DB.prepare(
+    `INSERT INTO correspondence_senders (project_id, sender_key, color, updated_by, updated_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(project_id, sender_key) DO UPDATE SET color = excluded.color, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+  )
+    .bind(pid, key, color, c.get('user').id, now())
+    .run();
   return c.json({ ok: true });
 });
 
