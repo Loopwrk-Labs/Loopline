@@ -7,3 +7,6 @@ CREATE TABLE correspondence_senders (
   updated_at  INTEGER NOT NULL,
   PRIMARY KEY (project_id, sender_key)
 );
+
+-- Marks manually entered messages that were edited after saving.
+ALTER TABLE correspondence ADD COLUMN edited_at INTEGER;

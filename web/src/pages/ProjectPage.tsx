@@ -8,7 +8,7 @@ import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
 
 type Mail = {
   id: string; source: 'email' | 'manual'; direction: 'in' | 'out'; from_addr: string | null; to_addr: string | null; cc_addr: string | null;
-  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null;
+  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null;
 };
 type Decision = {
   id: string; title: string; decision: string; decided_by: string | null; decided_on: string | null; source: string | null; item_id: string | null;
@@ -280,7 +280,25 @@ function Correspondence() {
   const [linking, setLinking] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
   const [add, setAdd] = useState<Record<string, string> | null>(null);
+  const [menu, setMenu] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState<Mail | null>(null);
   const [q, setQ] = useState('');
+  const canChange = (m: Mail) => app.me.role === 'admin' || (!!m.created_by && m.created_by === app.me.id);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const editOf = (m: Mail) => {
+    const d = new Date(m.sent_at);
+    setAdd({
+      id: m.id,
+      direction: m.direction,
+      sent_on: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+      sent_time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      tz_offset: String(d.getTimezoneOffset()),
+      from_addr: m.from_addr ?? '',
+      to_addr: m.to_addr ?? '',
+      subject: m.subject ?? '',
+      body: m.body ?? '',
+    });
+  };
   const pid = app.project!.id;
   const load = () => api.get<Mail[]>(`/projects/${pid}/correspondence`).then(setRows).catch(() => {});
   const loadColors = () =>
@@ -405,7 +423,29 @@ function Correspondence() {
                           <b>{name}</b>
                           {a.email && a.email !== name.toLowerCase() && <span class="meta">{a.email}</span>}
                           <span class={'tag' + (m.direction === 'out' ? ' on' : '')}>{m.direction === 'out' ? t('pm_out') : t('pm_in')}</span>
-                          <time>{fmtStamp(m.sent_at, lang)}</time>
+                          <time>
+                            {fmtStamp(m.sent_at, lang)}
+                            {m.edited_at ? <span class="edited" title={fmtStamp(m.edited_at, lang)}> · {t('pm_edited')}</span> : null}
+                          </time>
+                          {canChange(m) && (
+                            <span class="tl-menu">
+                              <button type="button" class="tl-dots" aria-label={t('pm_msg_actions')} aria-expanded={menu === m.id} onClick={() => setMenu(menu === m.id ? null : m.id)}>
+                                <Icon name="dots" />
+                              </button>
+                              {menu === m.id && (
+                                <div class="tl-pop" onMouseLeave={() => setMenu(null)}>
+                                  {m.source === 'manual' && (
+                                    <button type="button" onClick={() => { setMenu(null); editOf(m); }}>
+                                      {t('edit')}
+                                    </button>
+                                  )}
+                                  <button type="button" class="danger" onClick={() => { setMenu(null); setConfirmDel(m); }}>
+                                    {t('pm_delete_msg')}
+                                  </button>
+                                </div>
+                              )}
+                            </span>
+                          )}
                         </div>
                         {(m.to_addr || m.cc_addr) && (
                           <div class="tl-to">
@@ -479,7 +519,7 @@ function Correspondence() {
 
       {add && (
         <Modal
-          title={t('pm_add_mail')}
+          title={add.id ? t('pm_edit_mail') : t('pm_add_mail')}
           wide
           onClose={() => setAdd(null)}
           footer={
@@ -488,7 +528,8 @@ function Correspondence() {
               <button
                 class="btn solid"
                 onClick={async () => {
-                  if (await run(() => api.post(`/projects/${pid}/correspondence`, add))) {
+                  const { id, ...data } = add;
+                  if (await run(() => (id ? api.patch(`/correspondence/${id}`, data) : api.post(`/projects/${pid}/correspondence`, data)))) {
                     setAdd(null);
                     load();
                   }
@@ -539,6 +580,34 @@ function Correspondence() {
               <textarea class="textarea" style={{ minHeight: '200px' }} value={add.body ?? ''} onInput={(e) => setAdd({ ...add, body: e.currentTarget.value })} />
             </label>
           </div>
+        </Modal>
+      )}
+
+      {confirmDel && (
+        <Modal
+          title={t('pm_delete_msg')}
+          onClose={() => setConfirmDel(null)}
+          footer={
+            <>
+              <button class="btn" onClick={() => setConfirmDel(null)}>{t('cancel')}</button>
+              <button
+                class="btn solid danger"
+                onClick={async () => {
+                  if (await run(() => api.del(`/correspondence/${confirmDel.id}`))) {
+                    setConfirmDel(null);
+                    load();
+                  }
+                }}
+              >
+                {t('pm_delete_msg')}
+              </button>
+            </>
+          }
+        >
+          <p style={{ margin: 0 }}>{t('pm_delete_msg_q')}</p>
+          <p class="meta" style={{ marginTop: '8px' }}>
+            {confirmDel.subject || '—'} · {parseAddr(confirmDel.from_addr).name || '—'} · {fmtStamp(confirmDel.sent_at, lang)}
+          </p>
         </Modal>
       )}
     </>

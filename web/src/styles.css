@@ -480,3 +480,15 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
   .form .three { grid-template-columns: 1fr 1fr; }
 }
 .tl-box > .linkbtn { font: 500 .7rem/1 var(--mono); color: var(--dim); margin-top: 6px; }
+.tl-h time .edited { font-style: italic; }
+.tl-menu { position: relative; }
+.tl-dots { width: 26px; height: 22px; border-radius: 4px; border: 1px solid transparent; background: none; color: var(--dim); cursor: pointer; display: inline-grid; place-items: center; padding: 0; }
+.tl-dots svg { width: 16px; height: 16px; }
+.tl-dots:hover, .tl-dots[aria-expanded="true"] { border-color: var(--hair-strong); background: var(--surface); color: var(--ink); }
+.tl-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 150px; padding: 4px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--hair-strong); box-shadow: 0 10px 30px -10px var(--shadow); display: grid; }
+.tl-pop button { text-align: left; background: none; border: 0; border-radius: 5px; padding: 8px 10px; font: 500 .8rem/1 var(--body); color: var(--ink); cursor: pointer; }
+.tl-pop button:hover { background: var(--glass-strong); }
+.tl-pop button.danger { color: var(--bad); }
+.btn.solid.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+@media (max-width: 640px) { .tl-h .tl-menu { position: absolute; right: 10px; top: 10px; } .tl-box { position: relative; } .tl-h { padding-right: 28px; } }

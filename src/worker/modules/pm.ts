@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { AppEnv, Env } from '../lib/types';
 import { body, date, fail, isManager, now, num, requireRole, str, uid } from '../lib/http';
 import { randomHex, sha256 } from '../lib/crypto';
@@ -47,10 +48,49 @@ pm.post('/projects/:pid/correspondence', async (c) => {
   return c.json({ id });
 });
 
+/** Loads a message and checks that the caller may change its content (author of a manual entry, or admin). */
+async function editableMail(c: Context<AppEnv>, id: string) {
+  const m = await c.env.DB.prepare('SELECT id, source, created_by FROM correspondence WHERE id = ?').bind(id).first<{ id: string; source: string; created_by: string | null }>();
+  if (!m) fail(404, 'not_found');
+  const u = c.get('user');
+  if (u.role !== 'admin' && m!.created_by !== u.id) fail(403, 'forbidden', 'Only the person who added this message, or an admin, can change it.');
+  return m!;
+}
+
 pm.patch('/correspondence/:id', async (c) => {
+  const id = c.req.param('id');
   const b = await body(c);
-  const r = await c.env.DB.prepare('UPDATE correspondence SET item_id = ? WHERE id = ?').bind(str(b.item_id, 64), c.req.param('id')).run();
-  if (!r.meta.changes) fail(404, 'not_found');
+  const contentKeys = ['direction', 'sent_on', 'sent_time', 'from_addr', 'to_addr', 'subject', 'body'];
+  if (!contentKeys.some((k) => k in b)) {
+    // Link only: anyone on the team may link a message to an item.
+    const r = await c.env.DB.prepare('UPDATE correspondence SET item_id = ? WHERE id = ?').bind(str(b.item_id, 64), id).run();
+    if (!r.meta.changes) fail(404, 'not_found');
+    return c.json({ ok: true });
+  }
+  const m = await editableMail(c, id);
+  if (m.source !== 'manual') fail(409, 'locked', 'Emails received automatically cannot be edited, only linked.');
+  const subject = str(b.subject, 300);
+  const text = str(b.body, 100000);
+  if (!subject && !text) fail(400, 'empty', 'Add a subject or the message text.');
+  const sentOn = date(b.sent_on);
+  if (!sentOn) fail(400, 'bad_date', 'Enter a date.');
+  const time = typeof b.sent_time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(b.sent_time) ? b.sent_time : '12:00';
+  const offset = Number.isFinite(Number(b.tz_offset)) ? Number(b.tz_offset) : 0;
+  await c.env.DB.prepare(
+    `UPDATE correspondence SET direction = ?, from_addr = ?, to_addr = ?, subject = ?, body = ?, sent_at = ?, edited_at = ? WHERE id = ?`,
+  )
+    .bind(b.direction === 'out' ? 'out' : 'in', str(b.from_addr, 300), str(b.to_addr, 500), subject, text ?? '', Date.parse(`${sentOn}T${time}:00Z`) + offset * 60_000, now(), id)
+    .run();
+  return c.json({ ok: true });
+});
+
+pm.delete('/correspondence/:id', async (c) => {
+  const id = c.req.param('id');
+  await editableMail(c, id);
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE decisions SET correspondence_id = NULL WHERE correspondence_id = ?').bind(id),
+    c.env.DB.prepare('DELETE FROM correspondence WHERE id = ?').bind(id),
+  ]);
   return c.json({ ok: true });
 });
 
