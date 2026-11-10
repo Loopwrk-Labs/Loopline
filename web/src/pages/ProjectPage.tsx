@@ -328,6 +328,24 @@ function Correspondence() {
   const [fPrio, setFPrio] = useState('');
   const [fTag, setFTag] = useState('');
   const [openResolved, setOpenResolved] = useState<Set<string>>(new Set());
+  const [view, setViewState] = useState<'threads' | 'grid'>(() => {
+    try {
+      return localStorage.getItem('ll.mailView') === 'grid' ? 'grid' : 'threads';
+    } catch {
+      return 'threads';
+    }
+  });
+  const setView = (v: 'threads' | 'grid') => {
+    setViewState(v);
+    try {
+      localStorage.setItem('ll.mailView', v);
+    } catch {
+      /* private mode: just don't remember */
+    }
+  };
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkCat, setBulkCat] = useState('');
+  const [bulkTag, setBulkTag] = useState('');
   const canChange = (m: Mail) => app.me.role === 'admin' || (!!m.created_by && m.created_by === app.me.id);
   const pad = (n: number) => String(n).padStart(2, '0');
   const replyTo = (m: Mail) =>
@@ -446,7 +464,7 @@ function Correspondence() {
     const last = ms[ms.length - 1];
     const autoStatus: ThreadStatus = isInternal(senderKey(last.from_addr)) || last.direction === 'out' ? 'waiting_client' : 'waiting_us';
     const status = (meta?.status as ThreadStatus | null) ?? autoStatus;
-    return { ms, roots, first, meta, metaRoot: meta?.root_id ?? first.id, status, auto: !meta?.status, tags: parseTags(meta?.tags), last };
+    return { ms, roots, first, meta, metaRoot: meta?.root_id ?? first.id, status, autoStatus, auto: !meta?.status, tags: parseTags(meta?.tags), last };
   });
   type ThreadInfo = (typeof allThreads)[number];
   const categories = [...new Set(allThreads.map((x) => x.meta?.category).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b));
@@ -503,6 +521,38 @@ function Correspondence() {
     }
   };
   const statusLabel = (st: ThreadStatus) => t(`pm_st_${st}` as never);
+  type MetaPatch = Partial<{ category: string | null; subtopic: string | null; status: string | null; priority: string | null; tags: string[] }>;
+  /** Saves part of a thread's metadata (grid cells and bulk actions); the UI updates right away. */
+  const saveMetaFor = async (x: ThreadInfo, patch: MetaPatch) => {
+    const next = {
+      category: x.meta?.category ?? null,
+      subtopic: x.meta?.subtopic ?? null,
+      status: x.meta?.status ?? null,
+      priority: x.meta?.priority ?? null,
+      tags: x.tags,
+      ...patch,
+    };
+    setMetas((m) => ({ ...m, [x.metaRoot]: { root_id: x.metaRoot, ...next, tags: JSON.stringify(next.tags) } }));
+    return run(() => api.put(`/projects/${pid}/threads/${x.metaRoot}`, next));
+  };
+  const bulk = async (f: (x: ThreadInfo) => MetaPatch) => {
+    const list = allThreads.filter((x) => picked.has(x.metaRoot));
+    for (const x of list) await saveMetaFor(x, f(x));
+    loadMetas();
+  };
+  const textCell = (x: ThreadInfo, field: 'category' | 'subtopic', list?: string) => (
+    <input
+      key={`${x.metaRoot}-${field}-${x.meta?.[field] ?? ''}`}
+      class="cell"
+      list={list}
+      defaultValue={x.meta?.[field] ?? ''}
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+      onBlur={(e) => {
+        const v = e.currentTarget.value.trim();
+        if (v !== (x.meta?.[field] ?? '')) saveMetaFor(x, { [field]: v || null });
+      }}
+    />
+  );
   // Nesting depth adapts to the available width: each level indents ~43 px and a reply box keeps room
   // for a full readable line (~640 px). Phones always get 2 levels; wide monitors up to 8.
   const maxDepth = width <= 640 ? 2 : Math.max(3, Math.min(8, Math.floor((width - 52 - 640) / 43) + 1));
@@ -728,6 +778,14 @@ function Correspondence() {
 
       {rows.length > 0 && (
         <div class="th-filters">
+          <div class="seg" role="group" aria-label={t('pm_view')}>
+            <button type="button" aria-pressed={view === 'threads'} onClick={() => setView('threads')}>
+              {t('pm_view_threads')}
+            </button>
+            <button type="button" aria-pressed={view === 'grid'} onClick={() => setView('grid')}>
+              {t('pm_view_grid')}
+            </button>
+          </div>
           <select class="input sm" value={fCat} onChange={(e) => setFCat(e.currentTarget.value)} aria-label={t('pm_category')}>
             <option value="">{t('pm_all_categories')}</option>
             {categories.map((c) => (
@@ -760,7 +818,167 @@ function Correspondence() {
 
       {!threads.length && <div class="empty">{t('pm_mail_empty')}</div>}
 
-      <div class="threads" ref={threadsRef}>
+      {view === 'grid' && threads.length > 0 && (
+        <>
+          {picked.size > 0 && (
+            <div class="bulk-bar">
+              <b>
+                {picked.size} {t('pm_selected')}
+              </b>
+              <span class="bulk-f">
+                <input class="input sm" list="ll-cats-grid" placeholder={t('pm_category')} value={bulkCat} onInput={(e) => setBulkCat(e.currentTarget.value)} />
+                <button type="button" class="btn sm" disabled={!bulkCat.trim()} onClick={() => bulk(() => ({ category: bulkCat.trim() })).then(() => setBulkCat(''))}>
+                  {t('pm_apply')}
+                </button>
+              </span>
+              <select class="input sm" value="" onChange={(e) => { const v = e.currentTarget.value; e.currentTarget.value = ''; bulk(() => ({ status: v === 'auto' ? null : v })); }}>
+                <option value="">{t('pm_status')}…</option>
+                <option value="auto">{t('pm_status_auto')}</option>
+                {THREAD_STATUSES.map((st) => (
+                  <option value={st}>{statusLabel(st)}</option>
+                ))}
+              </select>
+              <select class="input sm" value="" onChange={(e) => { const v = e.currentTarget.value; e.currentTarget.value = ''; bulk(() => ({ priority: v === 'normal' ? null : v })); }}>
+                <option value="">{t('pm_priority')}…</option>
+                <option value="high">{t('pm_prio_high')}</option>
+                <option value="normal">{t('pm_prio_normal')}</option>
+                <option value="low">{t('pm_prio_low')}</option>
+              </select>
+              <span class="bulk-f">
+                <input
+                  class="input sm"
+                  list="ll-tags-grid"
+                  placeholder={t('pm_add_tag')}
+                  value={bulkTag}
+                  onInput={(e) => setBulkTag(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    const v = bulkTag.trim();
+                    if (e.key === 'Enter' && v) bulk((x) => ({ tags: x.tags.includes(v) ? x.tags : [...x.tags, v] })).then(() => setBulkTag(''));
+                  }}
+                />
+              </span>
+              <button type="button" class="linkbtn" onClick={() => setPicked(new Set())}>
+                × {t('pm_clear_selection')}
+              </button>
+            </div>
+          )}
+          <div class="grid-wrap">
+            <table class="sheet threads-sheet">
+              <thead>
+                <tr>
+                  <th class="pick">
+                    <input
+                      type="checkbox"
+                      aria-label={t('select_all')}
+                      checked={threads.length > 0 && threads.every((x) => picked.has(x.metaRoot))}
+                      onChange={(e) => setPicked(e.currentTarget.checked ? new Set(threads.map((x) => x.metaRoot)) : new Set())}
+                    />
+                  </th>
+                  <th>{t('pm_subject')}</th>
+                  <th>{t('pm_category')}</th>
+                  <th>{t('pm_subtopic')}</th>
+                  <th>{t('pm_status')}</th>
+                  <th>{t('pm_priority')}</th>
+                  <th>{t('pm_tags')}</th>
+                  <th class="r">#</th>
+                  <th>{t('pm_last_activity')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sections.map(({ cat, list }) => (
+                  <>
+                    {categories.length > 0 && (
+                      <tr class="grp">
+                        <td colSpan={9} class="grpc">
+                          {cat ?? t('pm_no_category')}
+                          <span class="key">· {list.length}</span>
+                        </td>
+                      </tr>
+                    )}
+                    {list.map((x) => (
+                      <tr class={picked.has(x.metaRoot) ? 'picked' : ''}>
+                        <td class="pick">
+                          <input
+                            type="checkbox"
+                            checked={picked.has(x.metaRoot)}
+                            onChange={() => {
+                              const n = new Set(picked);
+                              n.has(x.metaRoot) ? n.delete(x.metaRoot) : n.add(x.metaRoot);
+                              setPicked(n);
+                            }}
+                          />
+                        </td>
+                        <td class="th-title-cell">
+                          <button
+                            type="button"
+                            class="linkbtn"
+                            title={t('pm_open_thread')}
+                            onClick={() => {
+                              setView('threads');
+                              setTimeout(() => jumpTo(x.first.id), 60);
+                            }}
+                          >
+                            {x.first.subject || autoSubject(x.first.body) || '—'}
+                          </button>
+                        </td>
+                        <td>{textCell(x, 'category', 'll-cats-grid')}</td>
+                        <td>{textCell(x, 'subtopic')}</td>
+                        <td>
+                          <select
+                            class={'cell th-st-cell st-' + x.status}
+                            value={x.meta?.status ?? ''}
+                            onChange={(e) => saveMetaFor(x, { status: e.currentTarget.value || null })}
+                          >
+                            <option value="">
+                              {statusLabel(x.autoStatus)} (auto)
+                            </option>
+                            {THREAD_STATUSES.map((st) => (
+                              <option value={st}>{statusLabel(st)}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <select class="cell th-pr-cell" value={x.meta?.priority ?? ''} onChange={(e) => saveMetaFor(x, { priority: e.currentTarget.value || null })}>
+                            <option value="low">{t('pm_prio_low')}</option>
+                            <option value="">{t('pm_prio_normal')}</option>
+                            <option value="high">{t('pm_prio_high')}</option>
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            key={`${x.metaRoot}-tags-${x.tags.join(',')}`}
+                            class="cell"
+                            defaultValue={x.tags.join(', ')}
+                            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                            onBlur={(e) => {
+                              const tags = [...new Set(e.currentTarget.value.split(',').map((v) => v.trim()).filter(Boolean))];
+                              if (tags.join(',') !== x.tags.join(',')) saveMetaFor(x, { tags });
+                            }}
+                          />
+                        </td>
+                        <td class="r k">{x.ms.length}</td>
+                        <td class="k">{fmtStamp(x.last.sent_at, lang)}</td>
+                      </tr>
+                    ))}
+                  </>
+                ))}
+              </tbody>
+            </table>
+            <datalist id="ll-cats-grid">
+              {categories.map((c) => (
+                <option value={c} />
+              ))}
+            </datalist>
+            <datalist id="ll-tags-grid">
+              {allTags.map((g) => (
+                <option value={g} />
+              ))}
+            </datalist>
+          </div>
+        </>
+      )}
+
+      <div class="threads" ref={threadsRef} style={view === 'grid' ? { display: 'none' } : undefined}>
         {sections.map(({ cat, list }) => (
           <div class="th-section">
             {categories.length > 0 && (
