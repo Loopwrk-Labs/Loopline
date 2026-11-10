@@ -587,8 +587,15 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 
 /* ---------- filter ---------- */
 mark.hit { background: #ffe066; color: #141417; border-radius: 2px; padding: 0 1px; }
-.tl-item.miss > .tl-box { opacity: .5; }
-.tl-item.miss > .tl-box:hover { opacity: 1; }
+/* Filter on: non-matching messages fade far back (grey, faint), matching ones are lifted with a ring in their colour. */
+.tl-item > .tl-box, .tl-item > .tl-rail .tl-av { transition: opacity .2s, filter .2s, box-shadow .2s, transform .2s; }
+.tl-item.miss > .tl-box { opacity: .22; filter: grayscale(1); }
+.tl-item.miss > .tl-rail .tl-av { opacity: .25; filter: grayscale(1); }
+.tl-item.miss > .tl-box:hover { opacity: .85; filter: none; }
+.tl-item.focus > .tl-box { box-shadow: 0 0 0 2px var(--c), 0 14px 32px -14px color-mix(in srgb, var(--c) 70%, transparent); transform: translateY(-1px); }
+.tl-item.focus > .tl-rail .tl-av { box-shadow: 0 0 0 3px var(--void), 0 0 0 5px var(--c); }
+.tl-item.focus.sc-lw > .tl-box { box-shadow: 0 0 0 2px #101014, 0 0 0 4px rgba(255,8,0,.55), 0 14px 32px -12px rgba(0,0,0,.55); }
+.tl-item.focus.sc-lw > .tl-rail .tl-av { box-shadow: 0 0 0 3px var(--void), 0 0 0 5px rgba(255,8,0,.6); }
 .sender-chip.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--c); }
 .sender-chip.sc-lw.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #8f8e95; }
 .sender-chip.off { opacity: .45; }

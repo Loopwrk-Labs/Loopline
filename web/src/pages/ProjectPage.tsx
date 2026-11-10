@@ -605,7 +605,7 @@ function Correspondence() {
       const long = m.body.length > 520 || m.body.split('\n').length > 9;
       const open = expanded.has(m.id);
       return (
-        <div id={`mail-${m.id}`} class={'tl-item sc-' + color + (kids ? ' has-kids' : '') + (isMiss(m) ? ' miss' : '')}>
+        <div id={`mail-${m.id}`} class={'tl-item sc-' + color + (kids ? ' has-kids' : '') + (isMiss(m) ? ' miss' : ql || firm ? ' focus' : '')}>
           <div class="tl-rail">
             {color === 'lw' ? (
               <span class="tl-av" title={name}>
