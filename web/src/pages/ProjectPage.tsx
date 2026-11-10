@@ -746,27 +746,38 @@ function Correspondence() {
 
   return (
     <>
-      <div class="tb">
-        <span class="meta">{t('pm_mail_lede')}</span>
-        <div class="row sp">
-          <input class="input" style={{ width: '220px' }} placeholder={t('filter_ph')} value={q} onInput={(e) => setQ(e.currentTarget.value)} />
-          <button class="btn solid" onClick={() => setAdd(blank())}>
-            <Icon name="plus" />
-            {t('pm_add_mail')}
-          </button>
-        </div>
+      {/* Row 1: view · search · add.  Row 2: senders · filters · clear. */}
+      <div class="mail-bar">
+        {rows.length > 0 && (
+          <div class="seg" role="group" aria-label={t('pm_view')}>
+            <button type="button" aria-pressed={view === 'threads'} onClick={() => setView('threads')}>
+              {t('pm_view_threads')}
+            </button>
+            <button type="button" aria-pressed={view === 'grid'} onClick={() => setView('grid')}>
+              {t('pm_view_grid')}
+            </button>
+          </div>
+        )}
+        <label class="mail-search">
+          <Icon name="search" />
+          <input placeholder={t('pm_search_ph')} value={q} onInput={(e) => setQ(e.currentTarget.value)} aria-label={t('pm_search_ph')} />
+        </label>
+        <button class="btn solid mail-add" onClick={() => setAdd(blank())}>
+          <Icon name="plus" />
+          {t('pm_add_mail')}
+        </button>
       </div>
 
-      {senders.size > 0 && (
-        <div class="senders" aria-label={t('pm_senders')}>
-          <span class="senders-l">{t('pm_senders')}</span>
-          {[...senders.entries()]
-            .sort((a, b) => Number(isInternal(b[0])) - Number(isInternal(a[0])) || b[1].n - a[1].n)
-            .map(([k, s]) => {
-              const c = colorOf(k);
-              const who = [...s.people].join(', ');
-              return (
-                <span class="sender-chip-wrap">
+      {rows.length > 0 && (
+        <div class="mail-filters">
+          <div class="mf-group" aria-label={t('pm_senders')}>
+            <span class="mf-l">{t('pm_senders')}</span>
+            {[...senders.entries()]
+              .sort((a, b) => Number(isInternal(b[0])) - Number(isInternal(a[0])) || b[1].n - a[1].n)
+              .map(([k, s]) => {
+                const c = colorOf(k);
+                const who = [...s.people].join(', ');
+                return (
                   <button
                     type="button"
                     class={'sender-chip sc-' + c + (firm === k ? ' on' : '') + (firm && firm !== k ? ' off' : '')}
@@ -778,53 +789,52 @@ function Correspondence() {
                     {s.name}
                     <small>{s.n}</small>
                   </button>
-                </span>
-              );
-            })}
+                );
+              })}
+          </div>
+          <span class="mf-sep" />
+          <div class="mf-group">
+            <span class="mf-l">{t('pm_filters')}</span>
+            <label class={'pill-sel' + (fCat ? ' on' : '')}>
+              <select value={fCat} onChange={(e) => setFCat(e.currentTarget.value)} aria-label={t('pm_category')}>
+                <option value="">{t('pm_category')}</option>
+                {categories.map((c) => (
+                  <option value={c}>{c}</option>
+                ))}
+                <option value="__none">{t('pm_no_category')}</option>
+              </select>
+            </label>
+            <label class={'pill-sel' + (fStatus ? ' on' : '')}>
+              <select value={fStatus} onChange={(e) => setFStatus(e.currentTarget.value)} aria-label={t('pm_status')}>
+                <option value="">{t('pm_status')}</option>
+                {THREAD_STATUSES.map((st) => (
+                  <option value={st}>{statusLabel(st)}</option>
+                ))}
+              </select>
+            </label>
+            <label class={'pill-sel' + (fPrio ? ' on' : '')}>
+              <select value={fPrio} onChange={(e) => setFPrio(e.currentTarget.value)} aria-label={t('pm_priority')}>
+                <option value="">{t('pm_priority')}</option>
+                <option value="high">{t('pm_prio_high')}</option>
+                <option value="normal">{t('pm_prio_normal')}</option>
+                <option value="low">{t('pm_prio_low')}</option>
+              </select>
+            </label>
+            {allTags.length > 0 && (
+              <label class={'pill-sel' + (fTag ? ' on' : '')}>
+                <select value={fTag} onChange={(e) => setFTag(e.currentTarget.value)} aria-label={t('pm_tags')}>
+                  <option value="">{t('pm_tags')}</option>
+                  {allTags.map((g) => (
+                    <option value={g}>#{g}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
           {anyFilter && (
             <button type="button" class="linkbtn clear-f" onClick={clearAll}>
               × {t('pm_clear_filter')}
             </button>
-          )}
-        </div>
-      )}
-
-      {rows.length > 0 && (
-        <div class="th-filters">
-          <div class="seg" role="group" aria-label={t('pm_view')}>
-            <button type="button" aria-pressed={view === 'threads'} onClick={() => setView('threads')}>
-              {t('pm_view_threads')}
-            </button>
-            <button type="button" aria-pressed={view === 'grid'} onClick={() => setView('grid')}>
-              {t('pm_view_grid')}
-            </button>
-          </div>
-          <select class="input sm" value={fCat} onChange={(e) => setFCat(e.currentTarget.value)} aria-label={t('pm_category')}>
-            <option value="">{t('pm_all_categories')}</option>
-            {categories.map((c) => (
-              <option value={c}>{c}</option>
-            ))}
-            <option value="__none">{t('pm_no_category')}</option>
-          </select>
-          <select class="input sm" value={fStatus} onChange={(e) => setFStatus(e.currentTarget.value)} aria-label={t('pm_status')}>
-            <option value="">{t('pm_all_statuses')}</option>
-            {THREAD_STATUSES.map((st) => (
-              <option value={st}>{statusLabel(st)}</option>
-            ))}
-          </select>
-          <select class="input sm" value={fPrio} onChange={(e) => setFPrio(e.currentTarget.value)} aria-label={t('pm_priority')}>
-            <option value="">{t('pm_all_priorities')}</option>
-            <option value="high">{t('pm_prio_high')}</option>
-            <option value="normal">{t('pm_prio_normal')}</option>
-            <option value="low">{t('pm_prio_low')}</option>
-          </select>
-          {allTags.length > 0 && (
-            <select class="input sm" value={fTag} onChange={(e) => setFTag(e.currentTarget.value)} aria-label={t('pm_tags')}>
-              <option value="">{t('pm_all_tags')}</option>
-              {allTags.map((g) => (
-                <option value={g}>#{g}</option>
-              ))}
-            </select>
           )}
         </div>
       )}

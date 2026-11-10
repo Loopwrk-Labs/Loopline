@@ -314,6 +314,8 @@ export const en = {
   pm_mail_lede: "Correspondence grouped by subject. Messages in order, latest activity at the bottom.",
   pm_add_mail: "Add email",
   pm_mail_empty: "No correspondence yet.",
+  pm_filters: "Filters",
+  pm_search_ph: "Search correspondence…",
   pm_show_messages: "Show messages",
   pm_hide_messages: "Hide messages",
   pm_toggle_all_messages: "Show / hide all messages",

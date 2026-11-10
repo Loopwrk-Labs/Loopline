@@ -691,3 +691,42 @@ tr.msg-row.sc-lw .dot { background: #101014; box-shadow: 0 0 0 1px var(--hair-st
 .date-cell { font: .72rem var(--mono); width: 190px; }
 .date-cell:disabled { color: var(--faint); cursor: not-allowed; }
 .warn-ic { color: #d97706; cursor: help; }
+
+/* ---------- Prepiska toolbar ---------- */
+.mail-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.mail-bar .seg { flex: none; }
+.mail-bar .seg button { padding: .7em 1em; }
+.mail-search { flex: 1; max-width: 420px; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px;
+  border: 1px solid var(--hair-strong); border-radius: 6px; background: var(--surface); color: var(--faint); }
+.mail-search:focus-within { border-color: var(--ink); color: var(--ink); }
+.mail-search svg { width: 15px; height: 15px; flex: none; }
+.mail-search input { flex: 1; min-width: 0; border: 0; outline: none; background: none; font: inherit; color: var(--ink); }
+.mail-add { margin-left: auto; height: 36px; }
+.mail-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 12px; margin-bottom: 22px;
+  border: 1px solid var(--hair); border-radius: 8px; background: var(--glass); }
+.mf-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mf-l { font: 500 .62rem/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--faint); margin-right: 4px; }
+.mf-sep { width: 1px; align-self: stretch; background: var(--hair-strong); }
+.mail-filters .sender-chip { padding: 5px 10px 5px 8px; font-size: .76rem; }
+.mail-filters .clear-f { margin-left: auto; font: 500 .72rem/1 var(--mono); }
+.pill-sel { position: relative; display: inline-flex; align-items: center; }
+.pill-sel select { appearance: none; -webkit-appearance: none; height: 29px; padding: 0 26px 0 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--hair-strong); background: var(--surface); color: var(--ink); font: 500 .76rem/1 var(--body); }
+.pill-sel::after { content: ''; position: absolute; right: 11px; top: 50%; width: 6px; height: 6px; margin-top: -5px; pointer-events: none;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); color: var(--faint); }
+.pill-sel select:hover { border-color: var(--ink); }
+.pill-sel.on select { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.pill-sel.on::after { color: var(--on-ink); }
+@media (max-width: 760px) {
+  .mail-bar { flex-wrap: wrap; }
+  .mail-search { order: 3; max-width: none; flex-basis: 100%; }
+  .mf-sep { display: none; }
+  .mail-filters .clear-f { margin-left: 0; }
+}
+/* Two tidy rows: senders on top, filters below with "clear" on the right; labels aligned. */
+.mail-filters { display: grid; grid-template-columns: 1fr auto; gap: 10px 14px; }
+.mail-filters .mf-group { grid-column: 1; }
+.mail-filters .mf-sep { display: none; }
+.mail-filters .clear-f { grid-column: 2; grid-row: 2; align-self: center; margin-left: 0; }
+.mf-l { width: 84px; flex: none; }
+@media (max-width: 760px) { .mail-filters { grid-template-columns: 1fr; } .mail-filters .clear-f { grid-column: 1; grid-row: auto; justify-self: start; } .mf-l { width: 100%; margin-bottom: 2px; } }
