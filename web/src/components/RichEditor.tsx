@@ -136,3 +136,31 @@ export function RichEditor({ html, onChange, minHeight = '200px' }: Props) {
     </div>
   );
 }
+
+/** Wraps case-insensitive hits of `q` in <mark class="hit"> inside already-sanitised HTML (text nodes only). */
+export function highlightHtml(html: string, q: string): string {
+  if (!q) return html;
+  const box = document.createElement('div');
+  box.innerHTML = html;
+  const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
+  for (const node of nodes) {
+    const text = node.data;
+    const low = text.toLowerCase();
+    if (!low.includes(q)) continue;
+    const frag = document.createDocumentFragment();
+    let i = 0;
+    for (let j = low.indexOf(q); j !== -1; j = low.indexOf(q, i)) {
+      frag.append(text.slice(i, j));
+      const mk = document.createElement('mark');
+      mk.className = 'hit';
+      mk.textContent = text.slice(j, j + q.length);
+      frag.append(mk);
+      i = j + q.length;
+    }
+    frag.append(text.slice(i));
+    node.replaceWith(frag);
+  }
+  return box.innerHTML;
+}

@@ -577,10 +577,20 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 .sc-lw.tl-reply { background: #1a1a20; border-left-color: #8f8e95; }
 .tl-item.sc-lw > .tl-rail .tl-av { background: #101014; color: #f4f3f1; position: relative; display: inline-grid; place-items: center; cursor: default; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
 .lw-dot { position: absolute; right: 1px; bottom: 3px; width: 7px; height: 7px; border-radius: 1.5px; background: #ff0800; box-shadow: 0 0 6px rgba(255,8,0,.55); }
-.sender-chip.sc-lw { background: #101014; border-color: #101014; color: #f4f3f1; cursor: default; }
+.sender-chip.sc-lw { background: #101014; border-color: #101014; color: #f4f3f1; }
 .sender-chip.sc-lw i { background: #ff0800; border-radius: 2px; width: 8px; height: 8px; }
 .sender-chip.sc-lw small { color: #8f8e95; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tl-item.sc-lw > .tl-box { background: #24242b; border-color: rgba(255,255,255,.14); } }
 :root[data-theme="dark"] .tl-item.sc-lw > .tl-box { background: #24242b; border-color: rgba(255,255,255,.14); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .sender-chip.sc-lw { background: #24242b; border-color: rgba(255,255,255,.14); } }
 :root[data-theme="dark"] .sender-chip.sc-lw { background: #24242b; border-color: rgba(255,255,255,.14); }
+
+/* ---------- filter ---------- */
+mark.hit { background: #ffe066; color: #141417; border-radius: 2px; padding: 0 1px; }
+.tl-item.miss > .tl-box { opacity: .5; }
+.tl-item.miss > .tl-box:hover { opacity: 1; }
+.sender-chip.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--c); }
+.sender-chip.sc-lw.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #8f8e95; }
+.sender-chip.off { opacity: .45; }
+button.sender-chip.sc-lw { cursor: pointer; }
+.clear-f { font: 600 .72rem/1 var(--mono); color: var(--dim); margin-left: 6px; }

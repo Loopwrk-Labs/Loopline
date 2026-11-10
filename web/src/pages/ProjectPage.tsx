@@ -3,7 +3,7 @@ import { api, ApiError, type Item } from '../api';
 import { fmtDate, fmtNum, fmtStamp, useT } from '../i18n';
 import { go, useApp } from '../state';
 import { Icon, Modal } from '../components/ui';
-import { RichEditor, cleanHtml, textToHtml } from '../components/RichEditor';
+import { RichEditor, cleanHtml, highlightHtml, textToHtml } from '../components/RichEditor';
 import { isLeaf } from '../hours';
 import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
 
@@ -306,6 +306,7 @@ function Correspondence() {
   const [menu, setMenu] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<Mail | null>(null);
   const [q, setQ] = useState('');
+  const [firm, setFirm] = useState<string | null>(null);
   const canChange = (m: Mail) => app.me.role === 'admin' || (!!m.created_by && m.created_by === app.me.id);
   const pad = (n: number) => String(n).padStart(2, '0');
   const replyTo = (m: Mail) =>
@@ -391,9 +392,26 @@ function Correspondence() {
     groups.set(k, [...(groups.get(k) ?? []), m]);
   }
   const ql = q.trim().toLowerCase();
+  const matchQ = (m: Mail) => `${m.subject} ${m.from_addr} ${m.to_addr} ${m.body}`.toLowerCase().includes(ql);
+  const matchF = (m: Mail) => senderKey(m.from_addr) === firm;
+  /** With a filter on, messages that don't match stay visible (context) but are dimmed. */
+  const isMiss = (m: Mail) => (!!ql && !matchQ(m)) || (!!firm && !matchF(m));
+  /** Wraps search hits in <mark> inside plain text. */
+  const hl = (text: string) => {
+    if (!ql) return text;
+    const out: (string | preact.JSX.Element)[] = [];
+    const low = text.toLowerCase();
+    let i = 0;
+    for (let j = low.indexOf(ql); j !== -1; j = low.indexOf(ql, i)) {
+      out.push(text.slice(i, j), <mark class="hit">{text.slice(j, j + ql.length)}</mark>);
+      i = j + ql.length;
+    }
+    out.push(text.slice(i));
+    return out;
+  };
   const threads = [...groups.values()]
     .map((ms) => [...ms].sort((a, b) => a.sent_at - b.sent_at))
-    .filter((ms) => !ql || ms.some((m) => `${m.subject} ${m.from_addr} ${m.to_addr} ${m.body}`.toLowerCase().includes(ql)))
+    .filter((ms) => (!ql || ms.some(matchQ)) && (!firm || ms.some(matchF)))
     .sort((a, b) => a[a.length - 1].sent_at - b[b.length - 1].sent_at);
   // Nesting depth adapts to the available width: each level indents ~43 px and a reply box keeps room
   // for a full readable line (~640 px). Phones always get 2 levels; wide monitors up to 8.
@@ -434,7 +452,7 @@ function Correspondence() {
       const long = m.body.length > 520 || m.body.split('\n').length > 9;
       const open = expanded.has(m.id);
       return (
-        <div id={`mail-${m.id}`} class={'tl-item sc-' + color + (kids ? ' has-kids' : '')}>
+        <div id={`mail-${m.id}`} class={'tl-item sc-' + color + (kids ? ' has-kids' : '') + (isMiss(m) ? ' miss' : '')}>
           <div class="tl-rail">
             {color === 'lw' ? (
               <span class="tl-av" title={name}>
@@ -497,9 +515,9 @@ function Correspondence() {
                 );
               })()}
             {m.body_html ? (
-                <div class={'tl-body tl-rich' + (long && !open ? ' clamp' : '')} dangerouslySetInnerHTML={{ __html: cleanHtml(m.body_html) }} />
+                <div class={'tl-body tl-rich' + (long && !open ? ' clamp' : '')} dangerouslySetInnerHTML={{ __html: highlightHtml(cleanHtml(m.body_html), ql) }} />
               ) : (
-                <div class={'tl-body' + (long && !open ? ' clamp' : '')}>{m.body || <span class="faint">—</span>}</div>
+                <div class={'tl-body' + (long && !open ? ' clamp' : '')}>{m.body ? hl(m.body) : <span class="faint">—</span>}</div>
               )}
             {long && (
               <button type="button" class="linkbtn" onClick={() => toggle(m.id)}>
@@ -596,23 +614,25 @@ function Correspondence() {
               const who = [...s.people].join(', ');
               return (
                 <span class="sender-chip-wrap">
-                  {c === 'lw' ? (
-                    <span class="sender-chip sc-lw" title={who}>
-                      <i />
-                      {s.name}
-                      <small>{s.n}</small>
-                    </span>
-                  ) : (
-                    <button type="button" class={'sender-chip sc-' + c} title={`${who} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === `legend:${k}` ? null : `legend:${k}`)}>
-                      <i />
-                      {s.name}
-                      <small>{s.n}</small>
-                    </button>
-                  )}
-                  {picking === `legend:${k}` && c !== 'lw' && <ColorPicker value={c} onPick={(x) => setColor(k, x)} onClose={() => setPicking(null)} />}
+                  <button
+                    type="button"
+                    class={'sender-chip sc-' + c + (firm === k ? ' on' : '') + (firm && firm !== k ? ' off' : '')}
+                    title={`${who} · ${t('pm_filter_firm')}`}
+                    aria-pressed={firm === k}
+                    onClick={() => setFirm(firm === k ? null : k)}
+                  >
+                    <i />
+                    {s.name}
+                    <small>{s.n}</small>
+                  </button>
                 </span>
               );
             })}
+          {(firm || ql) && (
+            <button type="button" class="linkbtn clear-f" onClick={() => { setFirm(null); setQ(''); }}>
+              × {t('pm_clear_filter')}
+            </button>
+          )}
         </div>
       )}
 
@@ -625,7 +645,7 @@ function Correspondence() {
           return (
             <section class="thread">
               <header class="thread-h">
-                <b>{first.subject || '—'}</b>
+                <b>{first.subject ? hl(first.subject) : '—'}</b>
                 <span class="meta">
                   {ms.length} {ms.length % 10 === 1 && ms.length % 100 !== 11 ? t('pm_message') : [2, 3, 4].includes(ms.length % 10) && ![12, 13, 14].includes(ms.length % 100) ? t('pm_messages_few') : t('pm_messages')} · {fmtStamp(ms[ms.length - 1].sent_at, lang)}
                 </span>
