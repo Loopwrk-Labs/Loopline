@@ -26,6 +26,8 @@ const PATHS: Record<string, preact.JSX.Element> = {
   set: <g><circle cx="12" cy="12" r="3" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></g>,
   search: <g><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" /></g>,
   plus: <path d="M12 5v14M5 12h14" />,
+  pencil: <g><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></g>,
+  trash: <g><path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="M6 7l1 13h10l1-13" /><path d="M10 11v6M14 11v6" /></g>,
   dots: <g><circle cx="5" cy="12" r="1.3" /><circle cx="12" cy="12" r="1.3" /><circle cx="19" cy="12" r="1.3" /></g>,
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   out: <g><path d="M14 4h5v16h-5" /><path d="M10 8l-4 4 4 4M6 12h10" /></g>,

@@ -16,6 +16,10 @@ export const publicPm = new Hono<AppEnv>();
 
 // ---------------- correspondence ----------------
 
+/** Normalises a tag list from the client: trimmed, unique, max 12 × 40 chars. */
+const cleanTags = (v: unknown): string[] =>
+  Array.isArray(v) ? [...new Set(v.map((x) => String(x).trim().replace(/\s+/g, ' ').slice(0, 40)).filter(Boolean))].slice(0, 12) : [];
+
 pm.get('/projects/:pid/correspondence', async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT c.*, i.key AS item_key, u.name AS created_by_name FROM correspondence c
@@ -39,30 +43,27 @@ pm.post('/projects/:pid/correspondence', async (c) => {
   const offset = Number.isFinite(Number(b.tz_offset)) ? Number(b.tz_offset) : 0; // browser getTimezoneOffset(), minutes
   let replyTo = str(b.reply_to, 64);
   const parent = replyTo
-    ? await c.env.DB.prepare('SELECT subject FROM correspondence WHERE id = ? AND project_id = ?').bind(replyTo, pid).first<{ subject: string | null }>()
+    ? await c.env.DB.prepare('SELECT subject, category, subtopic, tags FROM correspondence WHERE id = ? AND project_id = ?')
+        .bind(replyTo, pid)
+        .first<{ subject: string | null; category: string | null; subtopic: string | null; tags: string }>()
     : null;
   if (!parent) replyTo = null;
   // No subject typed: a reply takes "Re: <parent subject>", a new thread gets a title from its first sentence.
   if (!subject) subject = parent?.subject ? (/^re:/i.test(parent.subject) ? parent.subject : `Re: ${parent.subject}`) : autoSubject(text);
   const id = uid();
   await c.env.DB.prepare(
-    `INSERT INTO correspondence (id, project_id, item_id, reply_to, source, direction, from_addr, to_addr, subject, body, body_html, sent_at, created_by, created_at)
-     VALUES (?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO correspondence (id, project_id, item_id, reply_to, source, direction, from_addr, to_addr, subject, body, body_html, sent_at, created_by, created_at, category, subtopic, tags)
+     VALUES (?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id, pid, str(b.item_id, 64), replyTo, b.direction === 'out' ? 'out' : 'in', str(b.from_addr, 300), str(b.to_addr, 500), subject, text ?? '', await sanitizeRichText(b.body_html),
       sentOn ? Date.parse(`${sentOn}T${time}:00Z`) + offset * 60_000 : now(), c.get('user').id, now(),
+      // A reply without its own categorisation inherits the parent's.
+      'category' in b || 'subtopic' in b || 'tags' in b ? str(b.category, 80) : parent?.category ?? null,
+      'category' in b || 'subtopic' in b || 'tags' in b ? str(b.subtopic, 80) : parent?.subtopic ?? null,
+      'category' in b || 'subtopic' in b || 'tags' in b ? JSON.stringify(cleanTags(b.tags)) : parent?.tags ?? '[]',
     )
     .run();
-  const category = str(b.category, 80);
-  const subtopic = str(b.subtopic, 80);
-  if (!replyTo && (category || subtopic)) {
-    await c.env.DB.prepare(
-      `INSERT INTO correspondence_threads (root_id, project_id, category, subtopic, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(id, pid, category, subtopic, c.get('user').id, now())
-      .run();
-  }
   return c.json({ id });
 });
 
@@ -78,6 +79,18 @@ async function editableMail(c: Context<AppEnv>, id: string) {
 pm.patch('/correspondence/:id', async (c) => {
   const id = c.req.param('id');
   const b = await body(c);
+  const metaKeys = ['category', 'subtopic', 'tags'];
+  if (Object.keys(b).length && Object.keys(b).every((k) => metaKeys.includes(k))) {
+    // Categorisation: anyone on the team may set it (like linking to an item).
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if ('category' in b) sets.push('category = ?'), vals.push(str(b.category, 80));
+    if ('subtopic' in b) sets.push('subtopic = ?'), vals.push(str(b.subtopic, 80));
+    if ('tags' in b) sets.push('tags = ?'), vals.push(JSON.stringify(cleanTags(b.tags)));
+    const r = await c.env.DB.prepare(`UPDATE correspondence SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, id).run();
+    if (!r.meta.changes) fail(404, 'not_found');
+    return c.json({ ok: true });
+  }
   const contentKeys = ['direction', 'sent_on', 'sent_time', 'from_addr', 'to_addr', 'subject', 'body'];
   if (!contentKeys.some((k) => k in b)) {
     // Link only: anyone on the team may link a message to an item.

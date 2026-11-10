@@ -10,7 +10,7 @@ import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
 
 type Mail = {
   id: string; source: 'email' | 'manual'; direction: 'in' | 'out'; from_addr: string | null; to_addr: string | null; cc_addr: string | null;
-  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null; reply_to: string | null; body_html: string | null;
+  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null; reply_to: string | null; body_html: string | null; category: string | null; subtopic: string | null; tags: string;
 };
 type Decision = {
   id: string; title: string; decision: string; decided_by: string | null; decided_on: string | null; source: string | null; item_id: string | null;
@@ -317,8 +317,8 @@ function Correspondence() {
   const [linking, setLinking] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
   const [add, setAdd] = useState<Record<string, string> | null>(null);
-  const [menu, setMenu] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<Mail | null>(null);
+  const [msgEdit, setMsgEdit] = useState<{ id: string; category: string; subtopic: string; tags: string } | null>(null);
   const [q, setQ] = useState('');
   const [firm, setFirm] = useState<string | null>(null);
   const [metas, setMetas] = useState<Record<string, ThreadMeta>>({});
@@ -356,7 +356,10 @@ function Correspondence() {
         direction: m.direction === 'in' ? 'out' : 'in',
         subject: m.subject ? (/^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`) : '',
         // Replying to the client: we are the sender (their "To", or simply "Loopwrk"); replying to us: the client is.
-        from_addr: m.direction === 'in' ? m.to_addr?.split(',')[0].trim() || 'Loopwrk' : m.to_addr?.split(',')[0].trim() ?? '',
+        from_addr:
+          m.direction === 'in'
+            ? m.to_addr?.split(',')[0].trim() || 'Loopwrk'
+            : m.to_addr?.split(',')[0].trim() || (m.reply_to ? rows.find((r) => r.id === m.reply_to)?.from_addr ?? '' : ''),
         to_addr: m.direction === 'in' ? m.from_addr ?? '' : m.to_addr ?? '',
         ...(m.item_id ? { item_id: m.item_id } : {}),
       }),
@@ -466,14 +469,17 @@ function Correspondence() {
     const last = ms[ms.length - 1];
     const autoStatus: ThreadStatus = isInternal(senderKey(last.from_addr)) || last.direction === 'out' ? 'waiting_client' : 'waiting_us';
     const status = (meta?.status as ThreadStatus | null) ?? autoStatus;
-    return { ms, roots, first, meta, metaRoot: meta?.root_id ?? first.id, status, autoStatus, auto: !meta?.status, tags: parseTags(meta?.tags), last };
+    // Category/subtopic/tags live on messages; the thread shows its first message's, tags are the union of all.
+    const rootTags = parseTags(first.tags);
+    const tags = [...new Set(ms.flatMap((m) => parseTags(m.tags)))];
+    return { ms, roots, first, meta, metaRoot: meta?.root_id ?? first.id, status, autoStatus, auto: !meta?.status, category: first.category, subtopic: first.subtopic, rootTags, tags, last };
   });
   type ThreadInfo = (typeof allThreads)[number];
-  const categories = [...new Set(allThreads.map((x) => x.meta?.category).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b));
+  const categories = [...new Set(rows.map((m) => m.category).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b));
   const allTags = [...new Set(allThreads.flatMap((x) => x.tags))].sort((a, b) => a.localeCompare(b));
   const threads = allThreads
     .filter(({ ms }) => (!ql || ms.some(matchQ)) && (!firm || ms.some(matchF)))
-    .filter((x) => !fCat || (fCat === '__none' ? !x.meta?.category : x.meta?.category === fCat))
+    .filter((x) => !fCat || (fCat === '__none' ? !x.category : x.ms.some((m) => m.category === fCat)))
     .filter((x) => !fStatus || x.status === fStatus)
     .filter((x) => !fPrio || (x.meta?.priority ?? 'normal') === fPrio)
     .filter((x) => !fTag || x.tags.includes(fTag))
@@ -482,7 +488,7 @@ function Correspondence() {
   const sections: { cat: string | null; list: ThreadInfo[] }[] = [];
   if (categories.length) {
     const byCat = new Map<string | null, ThreadInfo[]>();
-    for (const x of threads) byCat.set(x.meta?.category ?? null, [...(byCat.get(x.meta?.category ?? null) ?? []), x]);
+    for (const x of threads) byCat.set(x.category ?? null, [...(byCat.get(x.category ?? null) ?? []), x]);
     for (const [cat, list] of byCat) sections.push({ cat, list });
     sections.sort((a, b) => a.list[a.list.length - 1].last.sent_at - b.list[b.list.length - 1].last.sent_at);
   } else sections.push({ cat: null, list: threads });
@@ -498,44 +504,51 @@ function Correspondence() {
   const openMeta = (x: ThreadInfo) =>
     setMetaEdit({
       root: x.metaRoot,
-      category: x.meta?.category ?? '',
-      subtopic: x.meta?.subtopic ?? '',
+      category: x.category ?? '',
+      subtopic: x.subtopic ?? '',
       status: x.meta?.status ?? '',
       priority: x.meta?.priority ?? '',
-      tags: x.tags,
+      tags: x.rootTags,
       tagInput: '',
     });
   const saveMeta = async () => {
     if (!metaEdit) return;
     const tags = [...metaEdit.tags, ...metaEdit.tagInput.split(',')].map((s) => s.trim()).filter(Boolean);
-    const ok = await run(() =>
-      api.put(`/projects/${pid}/threads/${metaEdit.root}`, {
-        category: metaEdit.category.trim() || null,
-        subtopic: metaEdit.subtopic.trim() || null,
-        status: metaEdit.status || null,
-        priority: metaEdit.priority || null,
-        tags,
-      }),
-    );
+    const x = allThreads.find((y) => y.metaRoot === metaEdit.root);
+    const ok =
+      (await run(() => api.put(`/projects/${pid}/threads/${metaEdit.root}`, { status: metaEdit.status || null, priority: metaEdit.priority || null }))) &&
+      (await run(() =>
+        api.patch(`/correspondence/${x?.first.id ?? metaEdit.root}`, {
+          category: metaEdit.category.trim() || null,
+          subtopic: metaEdit.subtopic.trim() || null,
+          tags,
+        }),
+      ));
     if (ok) {
       setMetaEdit(null);
       loadMetas();
+      load();
     }
   };
   const statusLabel = (st: ThreadStatus) => t(`pm_st_${st}` as never);
+  const subtopicsFor = (cat: string) =>
+    [...new Set(rows.filter((m) => (m.category ?? '') === cat.trim()).map((m) => m.subtopic).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b));
   type MetaPatch = Partial<{ category: string | null; subtopic: string | null; status: string | null; priority: string | null; tags: string[] }>;
   /** Saves part of a thread's metadata (grid cells and bulk actions); the UI updates right away. */
   const saveMetaFor = async (x: ThreadInfo, patch: MetaPatch) => {
-    const next = {
-      category: x.meta?.category ?? null,
-      subtopic: x.meta?.subtopic ?? null,
-      status: x.meta?.status ?? null,
-      priority: x.meta?.priority ?? null,
-      tags: x.tags,
-      ...patch,
-    };
-    setMetas((m) => ({ ...m, [x.metaRoot]: { root_id: x.metaRoot, ...next, tags: JSON.stringify(next.tags) } }));
-    return run(() => api.put(`/projects/${pid}/threads/${x.metaRoot}`, next));
+    const { status, priority, ...msg } = patch;
+    if ('status' in patch || 'priority' in patch) {
+      const next = { status: x.meta?.status ?? null, priority: x.meta?.priority ?? null, ...('status' in patch ? { status } : {}), ...('priority' in patch ? { priority } : {}) };
+      setMetas((m) => ({ ...m, [x.metaRoot]: Object.assign({ root_id: x.metaRoot, category: null, subtopic: null, tags: '[]' }, m[x.metaRoot], next) }));
+      if (!(await run(() => api.put(`/projects/${pid}/threads/${x.metaRoot}`, next)))) return false;
+    }
+    if (Object.keys(msg).length) return saveMsgMeta(x.first, msg);
+    return true;
+  };
+  /** Category / subtopic / tags of one message (bubble editor, grid, bulk). */
+  const saveMsgMeta = async (m: Mail, patch: { category?: string | null; subtopic?: string | null; tags?: string[] }) => {
+    setRows((rs) => rs.map((r) => (r.id === m.id ? { ...r, ...patch, tags: patch.tags ? JSON.stringify(patch.tags) : r.tags } : r)));
+    return run(() => api.patch(`/correspondence/${m.id}`, patch));
   };
   /** Local "YYYY-MM-DDTHH:MM" for <input type="datetime-local">. */
   const toLocalInput = (ms: number) => {
@@ -552,17 +565,18 @@ function Correspondence() {
     const list = allThreads.filter((x) => picked.has(x.metaRoot));
     for (const x of list) await saveMetaFor(x, f(x));
     loadMetas();
+    load();
   };
   const textCell = (x: ThreadInfo, field: 'category' | 'subtopic', list?: string) => (
     <input
-      key={`${x.metaRoot}-${field}-${x.meta?.[field] ?? ''}`}
+      key={`${x.metaRoot}-${field}-${x[field] ?? ''}`}
       class="cell"
       list={list}
-      defaultValue={x.meta?.[field] ?? ''}
+      defaultValue={x[field] ?? ''}
       onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       onBlur={(e) => {
         const v = e.currentTarget.value.trim();
-        if (v !== (x.meta?.[field] ?? '')) saveMetaFor(x, { [field]: v || null });
+        if (v !== (x[field] ?? '')) saveMetaFor(x, { [field]: v || null });
       }}
     />
   );
@@ -591,134 +605,191 @@ function Correspondence() {
 
   /** One message card. `kids` = number of replies below it; the quote shows only when the parent is not drawn right above. */
   const renderItem = (m: Mail, showQuote: boolean, kids: number) => {
-      const k = senderKey(m.from_addr);
-      const a = parseAddr(m.from_addr);
-      const name = a.name || a.email || t('pm_unknown_sender');
-      const color = colorOf(k);
-      const atts = (() => {
-        try {
-          return JSON.parse(m.attachments) as { name: string }[];
-        } catch {
-          return [];
-        }
-      })();
-      const long = m.body.length > 520 || m.body.split('\n').length > 9;
-      const open = expanded.has(m.id);
-      return (
-        <div id={`mail-${m.id}`} class={'tl-item sc-' + color + (kids ? ' has-kids' : '') + (isMiss(m) ? ' miss' : ql || firm ? ' focus' : '')}>
-          <div class="tl-rail">
-            {color === 'lw' ? (
-              <span class="tl-av" title={name}>
-                {k === 'loopwrk' ? 'L' : initialsFrom(name)}
-                <i class="lw-dot" />
-              </span>
-            ) : (
-              <button type="button" class="tl-av" title={t('pm_sender_color')} aria-label={`${name} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === m.id ? null : m.id)}>
-                {initialsFrom(name)}
-              </button>
-            )}
-            {picking === m.id && color !== 'lw' && <ColorPicker value={color} onPick={(c) => setColor(k, c)} onClose={() => setPicking(null)} />}
-          </div>
-          <article class="tl-box">
-            <div class="tl-h">
+    const k = senderKey(m.from_addr);
+    const a = parseAddr(m.from_addr);
+    const name = a.name || a.email || t('pm_unknown_sender');
+    const color = colorOf(k);
+    const atts = (() => {
+      try {
+        return JSON.parse(m.attachments) as { name: string }[];
+      } catch {
+        return [];
+      }
+    })();
+    const long = m.body.length > 520 || m.body.split('\n').length > 9;
+    const open = expanded.has(m.id);
+    const own = { category: m.category, subtopic: m.subtopic, tags: parseTags(m.tags) };
+    // A reply that simply inherited its parent's categorisation doesn't repeat the chips.
+    const par = m.reply_to ? byId.get(m.reply_to) : undefined;
+    const same =
+      !!par && (par.category ?? '') === (own.category ?? '') && (par.subtopic ?? '') === (own.subtopic ?? '') && parseTags(par.tags).join('|') === own.tags.join('|');
+    const hasMeta = !!(own.category || own.subtopic || own.tags.length);
+    const editing = msgEdit?.id === m.id;
+    const openEdit = () => setMsgEdit({ id: m.id, category: own.category ?? '', subtopic: own.subtopic ?? '', tags: own.tags.join(', ') });
+    const commitEdit = async () => {
+      if (!msgEdit) return;
+      const tags = [...new Set(msgEdit.tags.split(',').map((v) => v.trim()).filter(Boolean))];
+      if (await saveMsgMeta(m, { category: msgEdit.category.trim() || null, subtopic: msgEdit.subtopic.trim() || null, tags })) setMsgEdit(null);
+    };
+    return (
+      <div id={`mail-${m.id}`} class={'tl-item sc-' + color + (kids ? ' has-kids' : '') + (isMiss(m) ? ' miss' : ql || firm ? ' focus' : '')}>
+        <div class="tl-rail">
+          {color === 'lw' ? (
+            <span class="tl-av" title={name}>
+              {k === 'loopwrk' ? 'L' : initialsFrom(name)}
+              <i class="lw-dot" />
+            </span>
+          ) : (
+            <button type="button" class="tl-av" title={t('pm_sender_color')} aria-label={`${name} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === m.id ? null : m.id)}>
+              {initialsFrom(name)}
+            </button>
+          )}
+          {picking === m.id && color !== 'lw' && <ColorPicker value={color} onPick={(c) => setColor(k, c)} onClose={() => setPicking(null)} />}
+        </div>
+        <article class="tl-box">
+          <header class="tl-h">
+            <div class="tl-who">
               <b>{name}</b>
-              {a.email && a.email !== name.toLowerCase() && <span class="meta">{a.email}</span>}
-              <span class={'tag' + (m.direction === 'out' ? ' on' : '')}>{m.direction === 'out' ? t('pm_out') : t('pm_in')}</span>
-              <time>
+              {a.email && a.email !== name.toLowerCase() && <span class="tl-mail">{a.email}</span>}
+            </div>
+            <div class="tl-side">
+              <span class={'dir ' + m.direction}>{m.direction === 'out' ? '↗ ' + t('pm_out') : '↙ ' + t('pm_in')}</span>
+              <time title={m.edited_at ? `${t('pm_edited')} ${fmtStamp(m.edited_at, lang)}` : undefined}>
                 {fmtStamp(m.sent_at, lang)}
-                {m.edited_at ? <span class="edited" title={fmtStamp(m.edited_at, lang)}> · {t('pm_edited')}</span> : null}
+                {m.edited_at ? <span class="edited"> · {t('pm_edited')}</span> : null}
               </time>
               {canChange(m) && (
-                <span class="tl-menu">
-                  <button type="button" class="tl-dots" aria-label={t('pm_msg_actions')} aria-expanded={menu === m.id} onClick={() => setMenu(menu === m.id ? null : m.id)}>
-                    <Icon name="dots" />
-                  </button>
-                  {menu === m.id && (
-                    <div class="tl-pop" onMouseLeave={() => setMenu(null)}>
-                      {m.source === 'manual' && (
-                        <button type="button" onClick={() => { setMenu(null); editOf(m); }}>
-                          {t('edit')}
-                        </button>
-                      )}
-                      <button type="button" class="danger" onClick={() => { setMenu(null); setConfirmDel(m); }}>
-                        {t('pm_delete_msg')}
-                      </button>
-                    </div>
+                <span class="tl-acts">
+                  {m.source === 'manual' && (
+                    <button type="button" class="tl-act" title={t('edit')} aria-label={t('edit')} onClick={() => editOf(m)}>
+                      <Icon name="pencil" />
+                    </button>
                   )}
+                  <button type="button" class="tl-act del" title={t('pm_delete_msg')} aria-label={t('pm_delete_msg')} onClick={() => setConfirmDel(m)}>
+                    <Icon name="trash" />
+                  </button>
                 </span>
               )}
             </div>
-            {(m.to_addr || m.cc_addr) && (
-              <div class="tl-to">
-                {t('pm_to')}: {m.to_addr || '—'}
-                {m.cc_addr ? ` · CC: ${m.cc_addr}` : ''}
-              </div>
-            )}
-            {m.reply_to &&
-              showQuote &&
-              (() => {
-                const o = rows.find((x) => x.id === m.reply_to);
-                if (!o) return null;
-                const on = parseAddr(o.from_addr);
-                return (
-                  <button type="button" class={'tl-reply sc-' + colorOf(senderKey(o.from_addr))} onClick={() => jumpTo(o.id)}>
-                    <span class="arr">↪</span> {t('pm_reply_to')} <b>{on.name || on.email || t('pm_unknown_sender')}</b> · {fmtStamp(o.sent_at, lang)}
-                    <span class="snip">{(o.body || o.subject || '').replace(/\s+/g, ' ').slice(0, 90)}</span>
-                  </button>
-                );
-              })()}
-            {m.body_html ? (
-                <div class={'tl-body tl-rich' + (long && !open ? ' clamp' : '')} dangerouslySetInnerHTML={{ __html: highlightHtml(cleanHtml(m.body_html), ql) }} />
-              ) : (
-                <div class={'tl-body' + (long && !open ? ' clamp' : '')}>{m.body ? hl(m.body) : <span class="faint">—</span>}</div>
-              )}
-            {long && (
-              <button type="button" class="linkbtn" onClick={() => toggle(m.id)}>
-                {open ? t('pm_show_less') : t('pm_show_more')}
-              </button>
-            )}
-            <div class="tl-f">
-              {atts.length > 0 && (
-                <span>
-                  📎 {atts.map((x) => x.name).join(', ')}
-                </span>
-              )}
-              <span>{m.source === 'email' ? t('pm_src_email') : `${t('pm_src_manual')}${m.created_by_name ? ' · ' + m.created_by_name : ''}`}</span>
-              {m.item_key && linking !== m.id && (
-                <a class="item-chip" href={`#/p/${app.project!.key}/i/${m.item_key}`}>
-                  {m.item_key}
-                </a>
-              )}
-              {kids > 0 && (
-                <button type="button" class="linkbtn kids-btn" onClick={() => toggleKids(m.id)}>
-                  {collapsed.has(m.id) ? `${t('pm_show_replies')} (${kids})` : `${t('pm_hide_replies')} (${kids})`}
+          </header>
+          {(m.to_addr || m.cc_addr) && (
+            <div class="tl-to">
+              {t('pm_to')}: {m.to_addr || '—'}
+              {m.cc_addr ? ` · CC: ${m.cc_addr}` : ''}
+            </div>
+          )}
+
+          {editing ? (
+            <div class="tl-meta-ed">
+              <input class="input sm" list="ll-cats-all" placeholder={t('pm_category')} value={msgEdit!.category} onInput={(e) => setMsgEdit({ ...msgEdit!, category: e.currentTarget.value })} />
+              <input class="input sm" list={`ll-subs-${m.id}`} placeholder={t('pm_subtopic')} value={msgEdit!.subtopic} onInput={(e) => setMsgEdit({ ...msgEdit!, subtopic: e.currentTarget.value })} />
+              <datalist id={`ll-subs-${m.id}`}>
+                {subtopicsFor(msgEdit!.category).map((c) => (
+                  <option value={c} />
+                ))}
+              </datalist>
+              <input
+                class="input sm tags"
+                placeholder={t('pm_tags_comma')}
+                value={msgEdit!.tags}
+                onInput={(e) => setMsgEdit({ ...msgEdit!, tags: e.currentTarget.value })}
+                onKeyDown={(e) => e.key === 'Enter' && commitEdit()}
+              />
+              <span class="ed-btns">
+                <button type="button" class="btn sm solid" onClick={commitEdit}>
+                  {t('save')}
                 </button>
-              )}
-              <span class="tl-actions">
-                <button type="button" class="linkbtn reply-btn" onClick={() => replyTo(m)}>
-                  ↩ {t('pm_reply')}
+                <button type="button" class="btn sm" onClick={() => setMsgEdit(null)}>
+                  {t('cancel')}
                 </button>
-                {linking === m.id ? (
-                  <span style={{ width: '240px' }}>
-                    <ItemPick
-                      value={m.item_id}
-                      onChange={async (v) => {
-                        if (await run(() => api.patch(`/correspondence/${m.id}`, { item_id: v }))) {
-                          setLinking(null);
-                          load();
-                        }
-                      }}
-                    />
-                  </span>
-                ) : (
-                  <button type="button" class="linkbtn" onClick={() => setLinking(m.id)}>
-                    {m.item_key ? t('pm_change_link') : t('pm_link_item')}
-                  </button>
-                )}
               </span>
             </div>
-          </article>
-        </div>
+          ) : hasMeta && !same ? (
+            <div class="tl-meta">
+              {(own.category || own.subtopic) && (
+                <button type="button" class="mc" title={t('pm_edit_meta')} onClick={openEdit}>
+                  {own.category ?? '—'}
+                  {own.subtopic && <span> › {own.subtopic}</span>}
+                </button>
+              )}
+              {own.tags.map((g) => (
+                <button type="button" class={'mt' + (fTag === g ? ' on' : '')} title={t('pm_filter_tag')} onClick={() => setFTag(fTag === g ? '' : g)}>
+                  #{g}
+                </button>
+              ))}
+              <button type="button" class="mm" title={t('pm_edit_meta')} aria-label={t('pm_edit_meta')} onClick={openEdit}>
+                <Icon name="pencil" />
+              </button>
+            </div>
+          ) : null}
+
+          {m.reply_to &&
+            showQuote &&
+            (() => {
+              const o = rows.find((x) => x.id === m.reply_to);
+              if (!o) return null;
+              const on = parseAddr(o.from_addr);
+              return (
+                <button type="button" class={'tl-reply sc-' + colorOf(senderKey(o.from_addr))} onClick={() => jumpTo(o.id)}>
+                  <span class="arr">↪</span> {t('pm_reply_to')} <b>{on.name || on.email || t('pm_unknown_sender')}</b> · {fmtStamp(o.sent_at, lang)}
+                  <span class="snip">{(o.body || o.subject || '').replace(/\s+/g, ' ').slice(0, 90)}</span>
+                </button>
+              );
+            })()}
+          {m.body_html ? (
+            <div class={'tl-body tl-rich' + (long && !open ? ' clamp' : '')} dangerouslySetInnerHTML={{ __html: highlightHtml(cleanHtml(m.body_html), ql) }} />
+          ) : (
+            <div class={'tl-body' + (long && !open ? ' clamp' : '')}>{m.body ? hl(m.body) : <span class="faint">—</span>}</div>
+          )}
+          {long && (
+            <button type="button" class="linkbtn more" onClick={() => toggle(m.id)}>
+              {open ? t('pm_show_less') : t('pm_show_more')}
+            </button>
+          )}
+          {atts.length > 0 && <div class="tl-atts">📎 {atts.map((x) => x.name).join(', ')}</div>}
+
+          <footer class="tl-f">
+            <span class="src">{m.source === 'email' ? t('pm_src_email') : `${t('pm_src_manual')}${m.created_by_name ? ' · ' + m.created_by_name : ''}`}</span>
+            {m.item_key && linking !== m.id && (
+              <a class="item-chip" href={`#/p/${app.project!.key}/i/${m.item_key}`}>
+                {m.item_key}
+              </a>
+            )}
+            <span class="tl-actions">
+              {kids > 0 && (
+                <button type="button" class="fbtn" onClick={() => toggleKids(m.id)}>
+                  {collapsed.has(m.id) ? `▸ ${t('pm_show_replies')} (${kids})` : `▾ ${t('pm_hide_replies')} (${kids})`}
+                </button>
+              )}
+              {!hasMeta && !editing && (
+                <button type="button" class="fbtn" onClick={openEdit}>
+                  # {t('pm_categorize')}
+                </button>
+              )}
+              {linking === m.id ? (
+                <span class="link-pick">
+                  <ItemPick
+                    value={m.item_id}
+                    onChange={async (v) => {
+                      if (await run(() => api.patch(`/correspondence/${m.id}`, { item_id: v }))) {
+                        setLinking(null);
+                        load();
+                      }
+                    }}
+                  />
+                </span>
+              ) : (
+                <button type="button" class="fbtn" onClick={() => setLinking(m.id)}>
+                  {m.item_key ? t('pm_change_link') : t('pm_link_item')}
+                </button>
+              )}
+              <button type="button" class="fbtn strong reply-btn" onClick={() => replyTo(m)}>
+                ↩ {t('pm_reply')}
+              </button>
+            </span>
+          </footer>
+        </article>
+      </div>
     );
   };
   /** Nested reply tree. At the deepest allowed level, further replies are listed flat (with their quote). */
@@ -876,7 +947,7 @@ function Correspondence() {
                   onInput={(e) => setBulkTag(e.currentTarget.value)}
                   onKeyDown={(e) => {
                     const v = bulkTag.trim();
-                    if (e.key === 'Enter' && v) bulk((x) => ({ tags: x.tags.includes(v) ? x.tags : [...x.tags, v] })).then(() => setBulkTag(''));
+                    if (e.key === 'Enter' && v) bulk((x) => ({ tags: x.rootTags.includes(v) ? x.rootTags : [...x.rootTags, v] })).then(() => setBulkTag(''));
                   }}
                 />
               </span>
@@ -993,13 +1064,13 @@ function Correspondence() {
                         </td>
                         <td>
                           <input
-                            key={`${x.metaRoot}-tags-${x.tags.join(',')}`}
+                            key={`${x.metaRoot}-tags-${x.rootTags.join(',')}`}
                             class="cell"
-                            defaultValue={x.tags.join(', ')}
+                            defaultValue={x.rootTags.join(', ')}
                             onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                             onBlur={(e) => {
                               const tags = [...new Set(e.currentTarget.value.split(',').map((v) => v.trim()).filter(Boolean))];
-                              if (tags.join(',') !== x.tags.join(',')) saveMetaFor(x, { tags });
+                              if (tags.join(',') !== x.rootTags.join(',')) saveMetaFor(x, { tags });
                             }}
                           />
                         </td>
@@ -1064,6 +1135,11 @@ function Correspondence() {
         </>
       )}
 
+      <datalist id="ll-cats-all">
+        {categories.map((c) => (
+          <option value={c} />
+        ))}
+      </datalist>
       <div class="threads" ref={threadsRef} style={view === 'grid' ? { display: 'none' } : undefined}>
         {sections.map(({ cat, list }) => (
           <div class="th-section">
@@ -1081,7 +1157,7 @@ function Correspondence() {
                 <section class={'thread' + (x.status === 'resolved' ? ' resolved' : '')}>
                   <header class="thread-h">
                     <b>{first.subject ? hl(first.subject) : <span class="auto-title">{hl(autoSubject(first.body) ?? '—')}</span>}</b>
-                    {x.meta?.subtopic && <span class="th-sub">› {x.meta.subtopic}</span>}
+                    {x.subtopic && <span class="th-sub">› {x.subtopic}</span>}
                     <button type="button" class={'th-status st-' + x.status} title={x.auto ? t('pm_status_auto_hint') : ''} onClick={() => openMeta(x)}>
                       <i />
                       {statusLabel(x.status)}
@@ -1156,7 +1232,7 @@ function Correspondence() {
                 <span class="label">{t('pm_subtopic')}</span>
                 <input class="input" list="ll-subs" placeholder={t('pm_subtopic_ph')} value={metaEdit.subtopic} onInput={(e) => setMetaEdit({ ...metaEdit, subtopic: e.currentTarget.value })} />
                 <datalist id="ll-subs">
-                  {[...new Set(allThreads.filter((x) => (x.meta?.category ?? '') === metaEdit.category.trim()).map((x) => x.meta?.subtopic).filter(Boolean) as string[])].map((c) => (
+                  {subtopicsFor(metaEdit.category).map((c) => (
                     <option value={c} />
                   ))}
                 </datalist>
