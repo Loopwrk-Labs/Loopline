@@ -277,6 +277,7 @@ function Correspondence() {
   const [rows, setRows] = useState<Mail[]>([]);
   const [colors, setColors] = useState<Record<string, SenderColor>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [linking, setLinking] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
   const [add, setAdd] = useState<Record<string, string> | null>(null);
@@ -344,9 +345,21 @@ function Correspondence() {
     const cur = senders.get(k);
     senders.set(k, { name: cur?.name || a.name || a.email || t('pm_unknown_sender'), email: a.email, n: (cur?.n ?? 0) + 1 });
   }
+  // Threads: a message belongs to the thread of its root ancestor (via reply_to); roots group by subject.
+  const byId = new Map(rows.map((m) => [m.id, m]));
+  const rootOf = (m: Mail) => {
+    let cur = m;
+    for (let n = 0; n < 50 && cur.reply_to && byId.has(cur.reply_to); n++) cur = byId.get(cur.reply_to)!;
+    return cur;
+  };
+  const kidsOf = new Map<string, Mail[]>();
+  for (const m of rows) if (m.reply_to && byId.has(m.reply_to)) kidsOf.set(m.reply_to, [...(kidsOf.get(m.reply_to) ?? []), m]);
+  for (const list of kidsOf.values()) list.sort((a, b) => a.sent_at - b.sent_at);
+  const countDesc = (id: string): number => (kidsOf.get(id) ?? []).reduce((n, k) => n + 1 + countDesc(k.id), 0);
+  const descOf = (id: string): Mail[] => (kidsOf.get(id) ?? []).flatMap((k) => [k, ...descOf(k.id)]);
   const groups = new Map<string, Mail[]>();
   for (const m of rows) {
-    const k = threadKeyOf(m);
+    const k = threadKeyOf(rootOf(m));
     groups.set(k, [...(groups.get(k) ?? []), m]);
   }
   const ql = q.trim().toLowerCase();
@@ -354,6 +367,12 @@ function Correspondence() {
     .map((ms) => [...ms].sort((a, b) => a.sent_at - b.sent_at))
     .filter((ms) => !ql || ms.some((m) => `${m.subject} ${m.from_addr} ${m.to_addr} ${m.body}`.toLowerCase().includes(ql)))
     .sort((a, b) => a[a.length - 1].sent_at - b[b.length - 1].sent_at);
+  const maxDepth = typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches ? 2 : 4;
+  const toggleKids = (id: string) => {
+    const n = new Set(collapsed);
+    n.has(id) ? n.delete(id) : n.add(id);
+    setCollapsed(n);
+  };
 
   const now = new Date();
   const blank = (extra: Record<string, string> = {}) => ({
@@ -368,6 +387,150 @@ function Correspondence() {
     n.has(id) ? n.delete(id) : n.add(id);
     setExpanded(n);
   };
+
+  /** One message card. `kids` = number of replies below it; the quote shows only when the parent is not drawn right above. */
+  const renderItem = (m: Mail, showQuote: boolean, kids: number) => {
+      const k = senderKey(m.from_addr);
+      const a = parseAddr(m.from_addr);
+      const name = a.name || a.email || t('pm_unknown_sender');
+      const color = colorOf(k);
+      const atts = (() => {
+        try {
+          return JSON.parse(m.attachments) as { name: string }[];
+        } catch {
+          return [];
+        }
+      })();
+      const long = m.body.length > 520 || m.body.split('\n').length > 9;
+      const open = expanded.has(m.id);
+      return (
+        <div id={`mail-${m.id}`} class={'tl-item sc-' + color + (kids ? ' has-kids' : '')}>
+          <div class="tl-rail">
+            <button type="button" class="tl-av" title={t('pm_sender_color')} aria-label={`${name} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === m.id ? null : m.id)}>
+              {initialsFrom(name)}
+            </button>
+            {picking === m.id && <ColorPicker value={color} onPick={(c) => setColor(k, c)} onClose={() => setPicking(null)} />}
+          </div>
+          <article class="tl-box">
+            <div class="tl-h">
+              <b>{name}</b>
+              {a.email && a.email !== name.toLowerCase() && <span class="meta">{a.email}</span>}
+              <span class={'tag' + (m.direction === 'out' ? ' on' : '')}>{m.direction === 'out' ? t('pm_out') : t('pm_in')}</span>
+              <time>
+                {fmtStamp(m.sent_at, lang)}
+                {m.edited_at ? <span class="edited" title={fmtStamp(m.edited_at, lang)}> · {t('pm_edited')}</span> : null}
+              </time>
+              {canChange(m) && (
+                <span class="tl-menu">
+                  <button type="button" class="tl-dots" aria-label={t('pm_msg_actions')} aria-expanded={menu === m.id} onClick={() => setMenu(menu === m.id ? null : m.id)}>
+                    <Icon name="dots" />
+                  </button>
+                  {menu === m.id && (
+                    <div class="tl-pop" onMouseLeave={() => setMenu(null)}>
+                      {m.source === 'manual' && (
+                        <button type="button" onClick={() => { setMenu(null); editOf(m); }}>
+                          {t('edit')}
+                        </button>
+                      )}
+                      <button type="button" class="danger" onClick={() => { setMenu(null); setConfirmDel(m); }}>
+                        {t('pm_delete_msg')}
+                      </button>
+                    </div>
+                  )}
+                </span>
+              )}
+            </div>
+            {(m.to_addr || m.cc_addr) && (
+              <div class="tl-to">
+                {t('pm_to')}: {m.to_addr || '—'}
+                {m.cc_addr ? ` · CC: ${m.cc_addr}` : ''}
+              </div>
+            )}
+            {m.reply_to &&
+              showQuote &&
+              (() => {
+                const o = rows.find((x) => x.id === m.reply_to);
+                if (!o) return null;
+                const on = parseAddr(o.from_addr);
+                return (
+                  <button type="button" class={'tl-reply sc-' + colorOf(senderKey(o.from_addr))} onClick={() => jumpTo(o.id)}>
+                    <span class="arr">↪</span> {t('pm_reply_to')} <b>{on.name || on.email || t('pm_unknown_sender')}</b> · {fmtStamp(o.sent_at, lang)}
+                    <span class="snip">{(o.body || o.subject || '').replace(/\s+/g, ' ').slice(0, 90)}</span>
+                  </button>
+                );
+              })()}
+            <div class={'tl-body' + (long && !open ? ' clamp' : '')}>{m.body || <span class="faint">—</span>}</div>
+            {long && (
+              <button type="button" class="linkbtn" onClick={() => toggle(m.id)}>
+                {open ? t('pm_show_less') : t('pm_show_more')}
+              </button>
+            )}
+            <div class="tl-f">
+              {atts.length > 0 && (
+                <span>
+                  📎 {atts.map((x) => x.name).join(', ')}
+                </span>
+              )}
+              <span>{m.source === 'email' ? t('pm_src_email') : `${t('pm_src_manual')}${m.created_by_name ? ' · ' + m.created_by_name : ''}`}</span>
+              {m.item_key && linking !== m.id && (
+                <a class="item-chip" href={`#/p/${app.project!.key}/i/${m.item_key}`}>
+                  {m.item_key}
+                </a>
+              )}
+              {kids > 0 && (
+                <button type="button" class="linkbtn kids-btn" onClick={() => toggleKids(m.id)}>
+                  {collapsed.has(m.id) ? `${t('pm_show_replies')} (${kids})` : `${t('pm_hide_replies')} (${kids})`}
+                </button>
+              )}
+              <span class="tl-actions">
+                <button type="button" class="linkbtn reply-btn" onClick={() => replyTo(m)}>
+                  ↩ {t('pm_reply')}
+                </button>
+                {linking === m.id ? (
+                  <span style={{ width: '240px' }}>
+                    <ItemPick
+                      value={m.item_id}
+                      onChange={async (v) => {
+                        if (await run(() => api.patch(`/correspondence/${m.id}`, { item_id: v }))) {
+                          setLinking(null);
+                          load();
+                        }
+                      }}
+                    />
+                  </span>
+                ) : (
+                  <button type="button" class="linkbtn" onClick={() => setLinking(m.id)}>
+                    {m.item_key ? t('pm_change_link') : t('pm_link_item')}
+                  </button>
+                )}
+              </span>
+            </div>
+          </article>
+        </div>
+    );
+  };
+  /** Nested reply tree. At the deepest allowed level, further replies are listed flat (with their quote). */
+  const renderList = (list: Mail[], depth: number): preact.JSX.Element => (
+    <ol class={depth === 0 ? 'tl tl-root' : 'tl tl-kids'}>
+      {list.map((m) => {
+        const atCap = depth >= maxDepth - 1;
+        const kids = kidsOf.get(m.id) ?? [];
+        const total = countDesc(m.id);
+        const hidden = collapsed.has(m.id);
+        if (atCap) {
+          return [m, ...(hidden ? [] : descOf(m.id).sort((a, b) => a.sent_at - b.sent_at))].map((x, i) => (
+            <li class={'tl-node sc-' + colorOf(senderKey(x.from_addr))}>{renderItem(x, i === 0 ? depth === 0 : true, i === 0 ? total : 0)}</li>
+          ));
+        }
+        return (
+          <li class={'tl-node sc-' + colorOf(senderKey(m.from_addr)) + (kids.length && !hidden ? ' open' : '')}>
+            {renderItem(m, depth === 0, total)}
+            {kids.length > 0 && !hidden && renderList(kids, depth + 1)}
+          </li>
+        );
+      })}
+    </ol>
+  );
 
   return (
     <>
@@ -404,7 +567,8 @@ function Correspondence() {
 
       <div class="threads">
         {threads.map((ms) => {
-          const first = ms[0];
+          const roots = ms.filter((m) => !m.reply_to || !byId.has(m.reply_to));
+          const first = roots[0] ?? ms[0];
           return (
             <section class="thread">
               <header class="thread-h">
@@ -413,122 +577,7 @@ function Correspondence() {
                   {ms.length} {ms.length % 10 === 1 && ms.length % 100 !== 11 ? t('pm_message') : [2, 3, 4].includes(ms.length % 10) && ![12, 13, 14].includes(ms.length % 100) ? t('pm_messages_few') : t('pm_messages')} · {fmtStamp(ms[ms.length - 1].sent_at, lang)}
                 </span>
               </header>
-              <ol class="tl">
-                {ms.map((m, i) => {
-                  const k = senderKey(m.from_addr);
-                  const a = parseAddr(m.from_addr);
-                  const name = a.name || a.email || t('pm_unknown_sender');
-                  const color = colorOf(k);
-                  const atts = (() => {
-                    try {
-                      return JSON.parse(m.attachments) as { name: string }[];
-                    } catch {
-                      return [];
-                    }
-                  })();
-                  const long = m.body.length > 520 || m.body.split('\n').length > 9;
-                  const open = expanded.has(m.id);
-                  return (
-                    <li id={`mail-${m.id}`} class={'tl-item sc-' + color + (i === ms.length - 1 ? ' last' : '')}>
-                      <div class="tl-rail">
-                        <button type="button" class="tl-av" title={t('pm_sender_color')} aria-label={`${name} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === m.id ? null : m.id)}>
-                          {initialsFrom(name)}
-                        </button>
-                        {picking === m.id && <ColorPicker value={color} onPick={(c) => setColor(k, c)} onClose={() => setPicking(null)} />}
-                      </div>
-                      <article class="tl-box">
-                        <div class="tl-h">
-                          <b>{name}</b>
-                          {a.email && a.email !== name.toLowerCase() && <span class="meta">{a.email}</span>}
-                          <span class={'tag' + (m.direction === 'out' ? ' on' : '')}>{m.direction === 'out' ? t('pm_out') : t('pm_in')}</span>
-                          <time>
-                            {fmtStamp(m.sent_at, lang)}
-                            {m.edited_at ? <span class="edited" title={fmtStamp(m.edited_at, lang)}> · {t('pm_edited')}</span> : null}
-                          </time>
-                          {canChange(m) && (
-                            <span class="tl-menu">
-                              <button type="button" class="tl-dots" aria-label={t('pm_msg_actions')} aria-expanded={menu === m.id} onClick={() => setMenu(menu === m.id ? null : m.id)}>
-                                <Icon name="dots" />
-                              </button>
-                              {menu === m.id && (
-                                <div class="tl-pop" onMouseLeave={() => setMenu(null)}>
-                                  {m.source === 'manual' && (
-                                    <button type="button" onClick={() => { setMenu(null); editOf(m); }}>
-                                      {t('edit')}
-                                    </button>
-                                  )}
-                                  <button type="button" class="danger" onClick={() => { setMenu(null); setConfirmDel(m); }}>
-                                    {t('pm_delete_msg')}
-                                  </button>
-                                </div>
-                              )}
-                            </span>
-                          )}
-                        </div>
-                        {(m.to_addr || m.cc_addr) && (
-                          <div class="tl-to">
-                            {t('pm_to')}: {m.to_addr || '—'}
-                            {m.cc_addr ? ` · CC: ${m.cc_addr}` : ''}
-                          </div>
-                        )}
-                        {m.reply_to &&
-                          (() => {
-                            const o = rows.find((x) => x.id === m.reply_to);
-                            if (!o) return null;
-                            const on = parseAddr(o.from_addr);
-                            return (
-                              <button type="button" class={'tl-reply sc-' + colorOf(senderKey(o.from_addr))} onClick={() => jumpTo(o.id)}>
-                                <span class="arr">↪</span> {t('pm_reply_to')} <b>{on.name || on.email || t('pm_unknown_sender')}</b> · {fmtStamp(o.sent_at, lang)}
-                                <span class="snip">{(o.body || o.subject || '').replace(/\s+/g, ' ').slice(0, 90)}</span>
-                              </button>
-                            );
-                          })()}
-                        <div class={'tl-body' + (long && !open ? ' clamp' : '')}>{m.body || <span class="faint">—</span>}</div>
-                        {long && (
-                          <button type="button" class="linkbtn" onClick={() => toggle(m.id)}>
-                            {open ? t('pm_show_less') : t('pm_show_more')}
-                          </button>
-                        )}
-                        <div class="tl-f">
-                          {atts.length > 0 && (
-                            <span>
-                              📎 {atts.map((x) => x.name).join(', ')}
-                            </span>
-                          )}
-                          <span>{m.source === 'email' ? t('pm_src_email') : `${t('pm_src_manual')}${m.created_by_name ? ' · ' + m.created_by_name : ''}`}</span>
-                          {m.item_key && linking !== m.id && (
-                            <a class="item-chip" href={`#/p/${app.project!.key}/i/${m.item_key}`}>
-                              {m.item_key}
-                            </a>
-                          )}
-                          <span class="tl-actions">
-                            <button type="button" class="linkbtn reply-btn" onClick={() => replyTo(m)}>
-                              ↩ {t('pm_reply')}
-                            </button>
-                            {linking === m.id ? (
-                              <span style={{ width: '240px' }}>
-                                <ItemPick
-                                  value={m.item_id}
-                                  onChange={async (v) => {
-                                    if (await run(() => api.patch(`/correspondence/${m.id}`, { item_id: v }))) {
-                                      setLinking(null);
-                                      load();
-                                    }
-                                  }}
-                                />
-                              </span>
-                            ) : (
-                              <button type="button" class="linkbtn" onClick={() => setLinking(m.id)}>
-                                {m.item_key ? t('pm_change_link') : t('pm_link_item')}
-                              </button>
-                            )}
-                          </span>
-                        </div>
-                      </article>
-                    </li>
-                  );
-                })}
-              </ol>
+              {renderList(roots, 0)}
             </section>
           );
         })}

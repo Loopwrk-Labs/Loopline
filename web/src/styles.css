@@ -447,9 +447,6 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 .tl { list-style: none; margin: 0; padding: 0; }
 .tl-item { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 12px; }
 .tl-rail { position: relative; display: flex; justify-content: center; }
-.tl-rail::after { content: ''; position: absolute; top: 40px; bottom: -4px; left: 50%; width: 2px; transform: translateX(-50%);
-  background: linear-gradient(var(--c), var(--hair-strong)); border-radius: 2px; opacity: .55; }
-.tl-item.last .tl-rail::after { display: none; }
 .tl-av { width: 36px; height: 36px; border-radius: 50%; border: 0; cursor: pointer; flex: none; margin-top: 2px;
   background: var(--c); color: #fff; font: 600 .74rem/1 var(--mono); letter-spacing: .02em; }
 .tl-av:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 30%, transparent); }
@@ -474,7 +471,6 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 @media (max-width: 640px) {
   .tl-item { grid-template-columns: 30px minmax(0,1fr); gap: 8px; }
   .tl-av { width: 30px; height: 30px; font-size: .64rem; }
-  .tl-rail::after { top: 34px; }
   .thread-add { margin-left: 38px; }
   .tl-h time { margin-left: 0; width: 100%; }
   .form .three { grid-template-columns: 1fr 1fr; }
@@ -508,3 +504,27 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 .tl-item.flash .tl-box { animation: tlflash 1.4s ease; }
 @keyframes tlflash { 0%, 40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 55%, transparent); } 100% { box-shadow: none; } }
 .tl-reply { box-sizing: border-box; min-width: 0; max-width: 100%; overflow: hidden; }
+
+/* ---------- reply tree ---------- */
+.tl-node { position: relative; }
+.tl-rail { position: relative; }
+/* spine between root messages */
+.tl-root > .tl-node:not(:last-child)::before { content: ''; position: absolute; left: 19px; top: 40px; bottom: -2px; width: 2px;
+  background: var(--hair-strong); border-radius: 2px; }
+/* line from a message down to its replies */
+.tl-node.open > .tl-item .tl-rail::after { content: ''; position: absolute; left: 19px; top: 40px; bottom: 0; width: 2px;
+  background: color-mix(in srgb, var(--c) 55%, var(--hair-strong)); border-radius: 2px; }
+.tl-kids { list-style: none; margin: 0 0 0 19px; padding: 0 0 0 24px; }
+/* elbow into each reply */
+.tl-kids > .tl-node::before { content: ''; position: absolute; left: -24px; top: 0; width: 26px; height: 20px;
+  border-left: 2px solid color-mix(in srgb, var(--c) 55%, var(--hair-strong)); border-bottom: 2px solid color-mix(in srgb, var(--c) 55%, var(--hair-strong));
+  border-bottom-left-radius: 12px; }
+/* branch continues past this reply to its next sibling */
+.tl-kids > .tl-node:not(:last-child)::after { content: ''; position: absolute; left: -24px; top: 0; bottom: 0; width: 2px; background: var(--hair-strong); }
+.kids-btn { font: 600 .72rem/1 var(--mono); color: var(--dim); }
+@media (max-width: 640px) {
+  .tl-root > .tl-node:not(:last-child)::before, .tl-node.open > .tl-item .tl-rail::after { left: 14px; top: 34px; }
+  .tl-kids { margin-left: 14px; padding-left: 14px; }
+  .tl-kids > .tl-node::before { left: -14px; width: 16px; height: 17px; border-bottom-left-radius: 9px; }
+  .tl-kids > .tl-node:not(:last-child)::after { left: -14px; }
+}
