@@ -235,9 +235,12 @@ function parseAddr(raw: string | null): { name: string; email: string } {
 const senderKey = (raw: string | null) => {
   const a = parseAddr(raw);
   const domain = a.email.includes('@') ? a.email.split('@').pop()! : '';
-  return (domain || a.name || 'unknown').toLowerCase();
+  // Names typed by hand ("Loopwrk:", " FNF ") are normalised so small typos don't split a group.
+  const name = a.name.toLowerCase().replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, '');
+  return (domain || name || 'unknown').toLowerCase();
 };
-const isInternal = (key: string) => INTERNAL_DOMAINS.some((d) => key === d || key.endsWith('.' + d));
+/** Loopwrk = an internal e-mail domain, or a sender written simply as "Loopwrk" (manual entries without an address). */
+const isInternal = (key: string) => key === 'loopwrk' || INTERNAL_DOMAINS.some((d) => key === d || key.endsWith('.' + d));
 function initialsFrom(name: string): string {
   const base = name.includes('@') ? name.split('@')[0].replace(/[._-]+/g, ' ') : name;
   const parts = base.trim().split(/\s+/).filter(Boolean);
@@ -360,7 +363,8 @@ function Correspondence() {
   for (const m of rows) {
     const k = senderKey(m.from_addr);
     const a = parseAddr(m.from_addr);
-    const cur = senders.get(k) ?? { name: isInternal(k) ? 'Loopwrk' : k || t('pm_unknown_sender'), people: new Set<string>(), n: 0 };
+    const label = isInternal(k) ? 'Loopwrk' : a.email ? k : a.name.replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, '') || k;
+    const cur = senders.get(k) ?? { name: label || t('pm_unknown_sender'), people: new Set<string>(), n: 0 };
     cur.people.add(a.name || a.email || t('pm_unknown_sender'));
     cur.n++;
     senders.set(k, cur);
@@ -430,7 +434,7 @@ function Correspondence() {
           <div class="tl-rail">
             {color === 'lw' ? (
               <span class="tl-av" title={name}>
-                {initialsFrom(name)}
+                {k === 'loopwrk' ? 'L' : initialsFrom(name)}
                 <i class="lw-dot" />
               </span>
             ) : (
