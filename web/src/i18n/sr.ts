@@ -304,6 +304,8 @@ export const sr: Dict = {
   pm_mail_lede: "Prepiska grupisana po temi. Poruke hronološki, najnovija aktivnost dole.",
   pm_add_mail: "Dodaj mejl",
   pm_mail_empty: "Još nema prepiske.",
+  pm_reply: "Odgovori",
+  pm_reply_to: "Odgovor na",
   pm_edited: "izmenjeno",
   pm_msg_actions: "Akcije za poruku",
   pm_delete_msg: "Obriši poruku",

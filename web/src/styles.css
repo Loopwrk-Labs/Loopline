@@ -496,3 +496,15 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 .tl-box { justify-self: start; width: fit-content; min-width: min(320px, 100%); max-width: min(640px, 100%); }
 .tl-h time { margin-left: auto; padding-left: 12px; }
 @media (max-width: 640px) { .tl-h time { padding-left: 0; } }
+.tl-reply { display: block; width: 100%; text-align: left; margin: 8px 0 0; padding: 6px 10px; border: 0; border-left: 3px solid var(--c);
+  border-radius: 4px; background: color-mix(in srgb, var(--c) 12%, transparent); font: .76rem/1.4 var(--body); color: var(--dim); cursor: pointer; }
+.tl-reply.static { cursor: default; margin: 0 0 4px; }
+.tl-reply b { color: var(--ink); font-weight: 600; }
+.tl-reply .arr { color: var(--c); font-weight: 700; }
+.tl-reply .snip { display: block; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-reply:not(.static):hover { background: color-mix(in srgb, var(--c) 20%, transparent); }
+.tl-actions { display: inline-flex; gap: 14px; align-items: center; }
+.reply-btn { font: 600 .72rem/1 var(--mono); }
+.tl-item.flash .tl-box { animation: tlflash 1.4s ease; }
+@keyframes tlflash { 0%, 40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 55%, transparent); } 100% { box-shadow: none; } }
+.tl-reply { box-sizing: border-box; min-width: 0; max-width: 100%; overflow: hidden; }

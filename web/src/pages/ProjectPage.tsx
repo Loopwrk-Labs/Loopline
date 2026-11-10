@@ -8,7 +8,7 @@ import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
 
 type Mail = {
   id: string; source: 'email' | 'manual'; direction: 'in' | 'out'; from_addr: string | null; to_addr: string | null; cc_addr: string | null;
-  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null;
+  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null; reply_to: string | null;
 };
 type Decision = {
   id: string; title: string; decision: string; decided_by: string | null; decided_on: string | null; source: string | null; item_id: string | null;
@@ -285,6 +285,24 @@ function Correspondence() {
   const [q, setQ] = useState('');
   const canChange = (m: Mail) => app.me.role === 'admin' || (!!m.created_by && m.created_by === app.me.id);
   const pad = (n: number) => String(n).padStart(2, '0');
+  const replyTo = (m: Mail) =>
+    setAdd(
+      blank({
+        reply_to: m.id,
+        direction: m.direction === 'in' ? 'out' : 'in',
+        subject: m.subject ? (/^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`) : '',
+        from_addr: m.direction === 'in' ? m.to_addr?.split(',')[0].trim() ?? '' : '',
+        to_addr: m.direction === 'in' ? m.from_addr ?? '' : m.to_addr ?? '',
+        ...(m.item_id ? { item_id: m.item_id } : {}),
+      }),
+    );
+  const jumpTo = (id: string) => {
+    const el = document.getElementById(`mail-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 1400);
+  };
   const editOf = (m: Mail) => {
     const d = new Date(m.sent_at);
     setAdd({
@@ -411,7 +429,7 @@ function Correspondence() {
                   const long = m.body.length > 520 || m.body.split('\n').length > 9;
                   const open = expanded.has(m.id);
                   return (
-                    <li class={'tl-item sc-' + color + (i === ms.length - 1 ? ' last' : '')}>
+                    <li id={`mail-${m.id}`} class={'tl-item sc-' + color + (i === ms.length - 1 ? ' last' : '')}>
                       <div class="tl-rail">
                         <button type="button" class="tl-av" title={t('pm_sender_color')} aria-label={`${name} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === m.id ? null : m.id)}>
                           {initialsFrom(name)}
@@ -453,6 +471,18 @@ function Correspondence() {
                             {m.cc_addr ? ` · CC: ${m.cc_addr}` : ''}
                           </div>
                         )}
+                        {m.reply_to &&
+                          (() => {
+                            const o = rows.find((x) => x.id === m.reply_to);
+                            if (!o) return null;
+                            const on = parseAddr(o.from_addr);
+                            return (
+                              <button type="button" class={'tl-reply sc-' + colorOf(senderKey(o.from_addr))} onClick={() => jumpTo(o.id)}>
+                                <span class="arr">↪</span> {t('pm_reply_to')} <b>{on.name || on.email || t('pm_unknown_sender')}</b> · {fmtStamp(o.sent_at, lang)}
+                                <span class="snip">{(o.body || o.subject || '').replace(/\s+/g, ' ').slice(0, 90)}</span>
+                              </button>
+                            );
+                          })()}
                         <div class={'tl-body' + (long && !open ? ' clamp' : '')}>{m.body || <span class="faint">—</span>}</div>
                         {long && (
                           <button type="button" class="linkbtn" onClick={() => toggle(m.id)}>
@@ -472,6 +502,9 @@ function Correspondence() {
                             </a>
                           )}
                           <span class="tl-actions">
+                            <button type="button" class="linkbtn reply-btn" onClick={() => replyTo(m)}>
+                              ↩ {t('pm_reply')}
+                            </button>
                             {linking === m.id ? (
                               <span style={{ width: '240px' }}>
                                 <ItemPick
@@ -496,22 +529,6 @@ function Correspondence() {
                   );
                 })}
               </ol>
-              <button
-                type="button"
-                class="btn sm thread-add"
-                onClick={() =>
-                  setAdd(
-                    blank({
-                      direction: 'out',
-                      subject: first.subject ? (/^re:/i.test(first.subject) ? first.subject : `Re: ${first.subject}`) : '',
-                      to_addr: ms[ms.length - 1].direction === 'in' ? ms[ms.length - 1].from_addr ?? '' : ms[ms.length - 1].to_addr ?? '',
-                    }),
-                  )
-                }
-              >
-                <Icon name="plus" />
-                {t('pm_add_to_thread')}
-              </button>
             </section>
           );
         })}
@@ -519,7 +536,7 @@ function Correspondence() {
 
       {add && (
         <Modal
-          title={add.id ? t('pm_edit_mail') : t('pm_add_mail')}
+          title={add.id ? t('pm_edit_mail') : add.reply_to ? t('pm_reply') : t('pm_add_mail')}
           wide
           onClose={() => setAdd(null)}
           footer={
@@ -541,6 +558,18 @@ function Correspondence() {
           }
         >
           <div class="form">
+            {add.reply_to &&
+              (() => {
+                const o = rows.find((x) => x.id === add.reply_to);
+                if (!o) return null;
+                const on = parseAddr(o.from_addr);
+                return (
+                  <div class={'tl-reply static sc-' + colorOf(senderKey(o.from_addr))}>
+                    <span class="arr">↪</span> {t('pm_reply_to')} <b>{on.name || on.email}</b> · {fmtStamp(o.sent_at, lang)}
+                    <span class="snip">{(o.body || o.subject || '').replace(/\s+/g, ' ').slice(0, 140)}</span>
+                  </div>
+                );
+              })()}
             <div class="three">
               <div class="field">
                 <span class="label">{t('pm_direction')}</span>
