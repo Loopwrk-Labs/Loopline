@@ -242,8 +242,12 @@ const senderKey = (raw: string | null) => {
 /** Loopwrk = an internal e-mail domain, or a sender written simply as "Loopwrk" (manual entries without an address). */
 const isInternal = (key: string) => key === 'loopwrk' || INTERNAL_DOMAINS.some((d) => key === d || key.endsWith('.' + d));
 function initialsFrom(name: string): string {
-  const base = name.includes('@') ? name.split('@')[0].replace(/[._-]+/g, ' ') : name;
-  const parts = base.trim().split(/\s+/).filter(Boolean);
+  const clean = name.trim().replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, '');
+  // An acronym typed in capitals ("FNF", "IT") is already short: keep it as is (up to 3 letters).
+  if (/^\p{Lu}{2,3}$/u.test(clean)) return clean;
+  // Hyphens, dots and underscores separate words ("Weiss-Muller" → WM, "ana.petrovic@x.rs" → AP).
+  const base = clean.includes('@') ? clean.split('@')[0] : clean;
+  const parts = base.replace(/[._-]+/g, ' ').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return '?';
   return ((parts[0][0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : parts[0][1] ?? '')).toUpperCase();
 }
