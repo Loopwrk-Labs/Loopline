@@ -422,12 +422,15 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 
 /* ---------- correspondence · threads ---------- */
 :root {
-  --sc-red:#e5484d; --sc-orange:#f76b15; --sc-amber:#d39b00; --sc-green:#2f9e5c; --sc-teal:#12a594;
-  --sc-blue:#3e7bfa; --sc-violet:#8e4ec6; --sc-pink:#d6409f; --sc-grey:#8b8d98;
-  --sc-tint:10%; --sc-edge:34%;
+  /* Client companies: muted, desaturated tones so the page stays calm next to the monochrome brand. */
+  --sc-slate:#5d7186; --sc-sage:#6b8566; --sc-sand:#a88552; --sc-clay:#a8664f; --sc-plum:#80637c;
+  --sc-teal:#4f817e; --sc-olive:#7a7a48; --sc-rose:#a96b78; --sc-stone:#7d7a74;
+  --sc-tint:8%; --sc-edge:30%;
 }
-.sc-red{--c:var(--sc-red)} .sc-orange{--c:var(--sc-orange)} .sc-amber{--c:var(--sc-amber)} .sc-green{--c:var(--sc-green)}
-.sc-teal{--c:var(--sc-teal)} .sc-blue{--c:var(--sc-blue)} .sc-violet{--c:var(--sc-violet)} .sc-pink{--c:var(--sc-pink)} .sc-grey{--c:var(--sc-grey)}
+.sc-slate{--c:var(--sc-slate)} .sc-sage{--c:var(--sc-sage)} .sc-sand{--c:var(--sc-sand)} .sc-clay{--c:var(--sc-clay)} .sc-plum{--c:var(--sc-plum)}
+.sc-teal{--c:var(--sc-teal)} .sc-olive{--c:var(--sc-olive)} .sc-rose{--c:var(--sc-rose)} .sc-stone{--c:var(--sc-stone)}
+/* Loopwrk (brand pravilnik): Void / Surface / Ink / Dim / Faint, red only as the small dot. */
+.sc-lw { --c:#8f8e95; }
 .form .three { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
 .senders { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 18px; }
 .senders-l { font: 500 .66rem/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--faint); margin-right: 4px; }
@@ -466,8 +469,8 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 .tl-actions { margin-left: auto; }
 .item-chip { font: 500 .7rem/1 var(--mono); padding: 4px 7px; border-radius: 4px; border: 1px solid var(--hair-strong); color: var(--ink); text-decoration: none; background: var(--surface); }
 .thread-add { margin-left: 52px; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sc-tint:16%; --sc-edge:42%; } }
-:root[data-theme="dark"] { --sc-tint:16%; --sc-edge:42%; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sc-tint:14%; --sc-edge:38%; } }
+:root[data-theme="dark"] { --sc-tint:14%; --sc-edge:38%; }
 @media (max-width: 640px) {
   .tl-item { grid-template-columns: 30px minmax(0,1fr); gap: 8px; }
   .tl-av { width: 30px; height: 30px; font-size: .64rem; }
@@ -551,3 +554,24 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 .rt-sep { width: 1px; height: 18px; background: var(--hair-strong); margin: 0 4px; }
 .rt-area { padding: 10px 12px; outline: none; line-height: 1.55; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
 .rt-area:empty::before { content: attr(data-ph); color: var(--faint); }
+
+/* ---------- Loopwrk bubbles (brand) ---------- */
+/* Light theme: dark Void card with Ink text (the brand's primary look). Dark theme: Surface 2 panel. Tokens are
+   re-declared locally so everything inside (meta, tags, links, menus) follows. */
+.tl-item.sc-lw > .tl-box, .sc-lw.tl-reply {
+  --ink:#f4f3f1; --dim:#a7a6ac; --faint:#8f8e95; --on-ink:#101014; --surface:#1a1a20; --surface-2:#24242b;
+  --hair:rgba(255,255,255,.12); --hair-strong:rgba(255,255,255,.24); --glass:rgba(255,255,255,.06); --glass-strong:rgba(255,255,255,.11);
+  color: var(--ink);
+}
+.tl-item.sc-lw > .tl-box { background: #101014; border-color: #101014; }
+.tl-item.sc-lw > .tl-box .tl-f { border-top-color: rgba(255,255,255,.16); }
+.sc-lw.tl-reply { background: #1a1a20; border-left-color: #8f8e95; }
+.tl-item.sc-lw > .tl-rail .tl-av { background: #101014; color: #f4f3f1; position: relative; display: inline-grid; place-items: center; cursor: default; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
+.lw-dot { position: absolute; right: 1px; bottom: 3px; width: 7px; height: 7px; border-radius: 1.5px; background: #ff0800; box-shadow: 0 0 6px rgba(255,8,0,.55); }
+.sender-chip.sc-lw { background: #101014; border-color: #101014; color: #f4f3f1; cursor: default; }
+.sender-chip.sc-lw i { background: #ff0800; border-radius: 2px; width: 8px; height: 8px; }
+.sender-chip.sc-lw small { color: #8f8e95; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tl-item.sc-lw > .tl-box { background: #24242b; border-color: rgba(255,255,255,.14); } }
+:root[data-theme="dark"] .tl-item.sc-lw > .tl-box { background: #24242b; border-color: rgba(255,255,255,.14); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .sender-chip.sc-lw { background: #24242b; border-color: rgba(255,255,255,.14); } }
+:root[data-theme="dark"] .sender-chip.sc-lw { background: #24242b; border-color: rgba(255,255,255,.14); }

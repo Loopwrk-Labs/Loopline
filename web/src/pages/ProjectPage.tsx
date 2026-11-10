@@ -218,7 +218,9 @@ function Overview() {
 }
 
 // ---------------- correspondence (Threads-style) ----------------
-const SENDER_COLORS = ['red', 'orange', 'amber', 'green', 'teal', 'blue', 'violet', 'pink', 'grey'] as const;
+// Muted palette for client companies. Loopwrk (internal domains) always uses the brand style ('lw'), never a palette colour.
+const SENDER_COLORS = ['slate', 'sage', 'sand', 'clay', 'plum', 'teal', 'olive', 'rose', 'stone'] as const;
+const INTERNAL_DOMAINS = ['lpwrk.dev'];
 type SenderColor = (typeof SENDER_COLORS)[number];
 
 /** "Ana Petrović <ana@klijent.com>" → name + email; a bare address keeps the address as the name. */
@@ -229,17 +231,20 @@ function parseAddr(raw: string | null): { name: string; email: string } {
   if (/@/.test(s)) return { name: s.split(',')[0].trim(), email: s.split(',')[0].trim().toLowerCase() };
   return { name: s, email: '' };
 }
+/** Colour group of a sender: the company e-mail domain (all people from one firm share a colour), else the name. */
 const senderKey = (raw: string | null) => {
   const a = parseAddr(raw);
-  return (a.email || a.name || 'unknown').toLowerCase();
+  const domain = a.email.includes('@') ? a.email.split('@').pop()! : '';
+  return (domain || a.name || 'unknown').toLowerCase();
 };
+const isInternal = (key: string) => INTERNAL_DOMAINS.some((d) => key === d || key.endsWith('.' + d));
 function initialsFrom(name: string): string {
   const base = name.includes('@') ? name.split('@')[0].replace(/[._-]+/g, ' ') : name;
   const parts = base.trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return '?';
   return ((parts[0][0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : parts[0][1] ?? '')).toUpperCase();
 }
-/** Stable default colour per sender (grey is never auto-assigned). */
+/** Stable default colour per company (stone is never auto-assigned). */
 function autoColor(key: string): SenderColor {
   let h = 0;
   for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -341,7 +346,8 @@ function Correspondence() {
     loadColors();
   }, [pid]);
 
-  const colorOf = (key: string): SenderColor => colors[key] ?? autoColor(key);
+  const colorOf = (key: string): SenderColor | 'lw' =>
+    isInternal(key) ? 'lw' : SENDER_COLORS.includes(colors[key]) ? colors[key] : autoColor(key);
   const setColor = async (key: string, color: SenderColor) => {
     setColors({ ...colors, [key]: color });
     setPicking(null);
@@ -349,12 +355,15 @@ function Correspondence() {
   };
 
   // Senders (legend) and threads grouped by subject, oldest message first inside a thread.
-  const senders = new Map<string, { name: string; email: string; n: number }>();
+  // Legend: one chip per company (e-mail domain); Loopwrk first.
+  const senders = new Map<string, { name: string; people: Set<string>; n: number }>();
   for (const m of rows) {
     const k = senderKey(m.from_addr);
     const a = parseAddr(m.from_addr);
-    const cur = senders.get(k);
-    senders.set(k, { name: cur?.name || a.name || a.email || t('pm_unknown_sender'), email: a.email, n: (cur?.n ?? 0) + 1 });
+    const cur = senders.get(k) ?? { name: isInternal(k) ? 'Loopwrk' : k || t('pm_unknown_sender'), people: new Set<string>(), n: 0 };
+    cur.people.add(a.name || a.email || t('pm_unknown_sender'));
+    cur.n++;
+    senders.set(k, cur);
   }
   // Threads: a message belongs to the thread of its root ancestor (via reply_to); roots group by subject.
   const byId = new Map(rows.map((m) => [m.id, m]));
@@ -419,10 +428,17 @@ function Correspondence() {
       return (
         <div id={`mail-${m.id}`} class={'tl-item sc-' + color + (kids ? ' has-kids' : '')}>
           <div class="tl-rail">
-            <button type="button" class="tl-av" title={t('pm_sender_color')} aria-label={`${name} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === m.id ? null : m.id)}>
-              {initialsFrom(name)}
-            </button>
-            {picking === m.id && <ColorPicker value={color} onPick={(c) => setColor(k, c)} onClose={() => setPicking(null)} />}
+            {color === 'lw' ? (
+              <span class="tl-av" title={name}>
+                {initialsFrom(name)}
+                <i class="lw-dot" />
+              </span>
+            ) : (
+              <button type="button" class="tl-av" title={t('pm_sender_color')} aria-label={`${name} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === m.id ? null : m.id)}>
+                {initialsFrom(name)}
+              </button>
+            )}
+            {picking === m.id && color !== 'lw' && <ColorPicker value={color} onPick={(c) => setColor(k, c)} onClose={() => setPicking(null)} />}
           </div>
           <article class="tl-box">
             <div class="tl-h">
@@ -566,17 +582,29 @@ function Correspondence() {
         <div class="senders" aria-label={t('pm_senders')}>
           <span class="senders-l">{t('pm_senders')}</span>
           {[...senders.entries()]
-            .sort((a, b) => b[1].n - a[1].n)
-            .map(([k, s]) => (
-              <span class="sender-chip-wrap">
-                <button type="button" class={'sender-chip sc-' + colorOf(k)} title={`${s.email || s.name} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === `legend:${k}` ? null : `legend:${k}`)}>
-                  <i />
-                  {s.name}
-                  <small>{s.n}</small>
-                </button>
-                {picking === `legend:${k}` && <ColorPicker value={colorOf(k)} onPick={(c) => setColor(k, c)} onClose={() => setPicking(null)} />}
-              </span>
-            ))}
+            .sort((a, b) => Number(isInternal(b[0])) - Number(isInternal(a[0])) || b[1].n - a[1].n)
+            .map(([k, s]) => {
+              const c = colorOf(k);
+              const who = [...s.people].join(', ');
+              return (
+                <span class="sender-chip-wrap">
+                  {c === 'lw' ? (
+                    <span class="sender-chip sc-lw" title={who}>
+                      <i />
+                      {s.name}
+                      <small>{s.n}</small>
+                    </span>
+                  ) : (
+                    <button type="button" class={'sender-chip sc-' + c} title={`${who} · ${t('pm_sender_color')}`} onClick={() => setPicking(picking === `legend:${k}` ? null : `legend:${k}`)}>
+                      <i />
+                      {s.name}
+                      <small>{s.n}</small>
+                    </button>
+                  )}
+                  {picking === `legend:${k}` && c !== 'lw' && <ColorPicker value={c} onPick={(x) => setColor(k, x)} onClose={() => setPicking(null)} />}
+                </span>
+              );
+            })}
         </div>
       )}
 
