@@ -54,6 +54,15 @@ pm.post('/projects/:pid/correspondence', async (c) => {
       sentOn ? Date.parse(`${sentOn}T${time}:00Z`) + offset * 60_000 : now(), c.get('user').id, now(),
     )
     .run();
+  const category = str(b.category, 80);
+  const subtopic = str(b.subtopic, 80);
+  if (!replyTo && (category || subtopic)) {
+    await c.env.DB.prepare(
+      `INSERT INTO correspondence_threads (root_id, project_id, category, subtopic, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(id, pid, category, subtopic, c.get('user').id, now())
+      .run();
+  }
   return c.json({ id });
 });
 
@@ -96,11 +105,50 @@ pm.patch('/correspondence/:id', async (c) => {
 pm.delete('/correspondence/:id', async (c) => {
   const id = c.req.param('id');
   await editableMail(c, id);
+  // If this message carries thread metadata, hand it to its first reply so the categorisation survives.
+  const heir = await c.env.DB.prepare('SELECT id FROM correspondence WHERE reply_to = ? ORDER BY sent_at LIMIT 1').bind(id).first<{ id: string }>();
   await c.env.DB.batch([
+    heir
+      ? c.env.DB.prepare('UPDATE correspondence_threads SET root_id = ? WHERE root_id = ?').bind(heir.id, id)
+      : c.env.DB.prepare('DELETE FROM correspondence_threads WHERE root_id = ?').bind(id),
     c.env.DB.prepare('UPDATE decisions SET correspondence_id = NULL WHERE correspondence_id = ?').bind(id),
     c.env.DB.prepare('UPDATE correspondence SET reply_to = NULL WHERE reply_to = ?').bind(id),
     c.env.DB.prepare('DELETE FROM correspondence WHERE id = ?').bind(id),
   ]);
+  return c.json({ ok: true });
+});
+
+// Thread metadata: category › subtopic, status, priority, tags. Anyone on the team may set them.
+const THREAD_STATUS = ['open', 'waiting_us', 'waiting_client', 'resolved'];
+const THREAD_PRIORITY = ['low', 'high'];
+
+pm.get('/projects/:pid/threads', async (c) => {
+  const { results } = await c.env.DB.prepare(
+    'SELECT root_id, category, subtopic, status, priority, tags FROM correspondence_threads WHERE project_id = ?',
+  )
+    .bind(c.req.param('pid'))
+    .all();
+  return c.json(results);
+});
+
+pm.put('/projects/:pid/threads/:root', async (c) => {
+  const pid = c.req.param('pid');
+  const root = c.req.param('root');
+  const b = await body(c);
+  if (!(await c.env.DB.prepare('SELECT 1 FROM correspondence WHERE id = ? AND project_id = ?').bind(root, pid).first())) fail(404, 'not_found');
+  const status = THREAD_STATUS.includes(b.status as string) ? (b.status as string) : null;
+  const priority = THREAD_PRIORITY.includes(b.priority as string) ? (b.priority as string) : null;
+  const tags = Array.isArray(b.tags)
+    ? [...new Set((b.tags as unknown[]).map((x) => String(x).trim().replace(/\s+/g, ' ').slice(0, 40)).filter(Boolean))].slice(0, 12)
+    : [];
+  await c.env.DB.prepare(
+    `INSERT INTO correspondence_threads (root_id, project_id, category, subtopic, status, priority, tags, updated_by, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(root_id) DO UPDATE SET category = excluded.category, subtopic = excluded.subtopic, status = excluded.status,
+       priority = excluded.priority, tags = excluded.tags, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+  )
+    .bind(root, pid, str(b.category, 80), str(b.subtopic, 80), status, priority, JSON.stringify(tags), c.get('user').id, now())
+    .run();
   return c.json({ ok: true });
 });
 
@@ -339,6 +387,8 @@ pm.get('/backup', async (c) => {
     items: 'SELECT * FROM items',
     logbook: 'SELECT * FROM logbook',
     correspondence: 'SELECT * FROM correspondence',
+    correspondence_threads: 'SELECT * FROM correspondence_threads',
+    correspondence_senders: 'SELECT * FROM correspondence_senders',
     approvals: 'SELECT id, project_id, kind, key, item_id, title, body, impact_hours, impact_cost, impact_days, currency, status, sent_at, content_sha256, client_name, client_email, decided_at, decided_ip, decision_note, created_at FROM approvals',
     decisions: 'SELECT * FROM decisions',
   };

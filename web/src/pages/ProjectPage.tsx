@@ -284,6 +284,19 @@ function ColorPicker({ value, onPick, onClose }: { value: SenderColor; onPick: (
   );
 }
 
+type ThreadMeta = { root_id: string; category: string | null; subtopic: string | null; status: string | null; priority: string | null; tags: string };
+type ThreadStatus = 'open' | 'waiting_us' | 'waiting_client' | 'resolved';
+const THREAD_STATUSES: ThreadStatus[] = ['open', 'waiting_us', 'waiting_client', 'resolved'];
+type MetaEdit = { root: string; category: string; subtopic: string; status: string; priority: string; tags: string[]; tagInput: string };
+const parseTags = (s: string | null | undefined): string[] => {
+  try {
+    const v = JSON.parse(s ?? '[]');
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch {
+    return [];
+  }
+};
+
 function Correspondence() {
   const app = useApp();
   const { t, lang } = useT();
@@ -308,6 +321,13 @@ function Correspondence() {
   const [confirmDel, setConfirmDel] = useState<Mail | null>(null);
   const [q, setQ] = useState('');
   const [firm, setFirm] = useState<string | null>(null);
+  const [metas, setMetas] = useState<Record<string, ThreadMeta>>({});
+  const [metaEdit, setMetaEdit] = useState<MetaEdit | null>(null);
+  const [fCat, setFCat] = useState('');
+  const [fStatus, setFStatus] = useState('');
+  const [fPrio, setFPrio] = useState('');
+  const [fTag, setFTag] = useState('');
+  const [openResolved, setOpenResolved] = useState<Set<string>>(new Set());
   const canChange = (m: Mail) => app.me.role === 'admin' || (!!m.created_by && m.created_by === app.me.id);
   const pad = (n: number) => String(n).padStart(2, '0');
   const replyTo = (m: Mail) =>
@@ -350,9 +370,15 @@ function Correspondence() {
       .get<{ sender_key: string; color: SenderColor }[]>(`/projects/${pid}/senders`)
       .then((r) => setColors(Object.fromEntries(r.map((x) => [x.sender_key, x.color]))))
       .catch(() => {});
+  const loadMetas = () =>
+    api
+      .get<ThreadMeta[]>(`/projects/${pid}/threads`)
+      .then((r) => setMetas(Object.fromEntries(r.map((x) => [x.root_id, x]))))
+      .catch(() => {});
   useEffect(() => {
     load();
     loadColors();
+    loadMetas();
   }, [pid]);
 
   const colorOf = (key: string): SenderColor | 'lw' =>
@@ -410,10 +436,73 @@ function Correspondence() {
     out.push(text.slice(i));
     return out;
   };
-  const threads = [...groups.values()]
-    .map((ms) => [...ms].sort((a, b) => a.sent_at - b.sent_at))
-    .filter((ms) => (!ql || ms.some(matchQ)) && (!firm || ms.some(matchF)))
-    .sort((a, b) => a[a.length - 1].sent_at - b[b.length - 1].sent_at);
+  // Thread info: messages, roots, metadata (stored on the first root) and the effective status.
+  // Status "auto" follows who wrote last: client → waiting on us, Loopwrk → waiting on the client.
+  const allThreads = [...groups.values()].map((list) => {
+    const ms = [...list].sort((a, b) => a.sent_at - b.sent_at);
+    const roots = ms.filter((m) => !m.reply_to || !byId.has(m.reply_to));
+    const first = roots[0] ?? ms[0];
+    const meta = roots.map((r) => metas[r.id]).find(Boolean) ?? null;
+    const last = ms[ms.length - 1];
+    const autoStatus: ThreadStatus = isInternal(senderKey(last.from_addr)) || last.direction === 'out' ? 'waiting_client' : 'waiting_us';
+    const status = (meta?.status as ThreadStatus | null) ?? autoStatus;
+    return { ms, roots, first, meta, metaRoot: meta?.root_id ?? first.id, status, auto: !meta?.status, tags: parseTags(meta?.tags), last };
+  });
+  type ThreadInfo = (typeof allThreads)[number];
+  const categories = [...new Set(allThreads.map((x) => x.meta?.category).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b));
+  const allTags = [...new Set(allThreads.flatMap((x) => x.tags))].sort((a, b) => a.localeCompare(b));
+  const threads = allThreads
+    .filter(({ ms }) => (!ql || ms.some(matchQ)) && (!firm || ms.some(matchF)))
+    .filter((x) => !fCat || (fCat === '__none' ? !x.meta?.category : x.meta?.category === fCat))
+    .filter((x) => !fStatus || x.status === fStatus)
+    .filter((x) => !fPrio || (x.meta?.priority ?? 'normal') === fPrio)
+    .filter((x) => !fTag || x.tags.includes(fTag))
+    .sort((a, b) => a.last.sent_at - b.last.sent_at);
+  // Group by category (only when at least one thread has one); groups ordered by their latest activity.
+  const sections: { cat: string | null; list: ThreadInfo[] }[] = [];
+  if (categories.length) {
+    const byCat = new Map<string | null, ThreadInfo[]>();
+    for (const x of threads) byCat.set(x.meta?.category ?? null, [...(byCat.get(x.meta?.category ?? null) ?? []), x]);
+    for (const [cat, list] of byCat) sections.push({ cat, list });
+    sections.sort((a, b) => a.list[a.list.length - 1].last.sent_at - b.list[b.list.length - 1].last.sent_at);
+  } else sections.push({ cat: null, list: threads });
+  const anyFilter = !!(firm || ql || fCat || fStatus || fPrio || fTag);
+  const clearAll = () => {
+    setFirm(null);
+    setQ('');
+    setFCat('');
+    setFStatus('');
+    setFPrio('');
+    setFTag('');
+  };
+  const openMeta = (x: ThreadInfo) =>
+    setMetaEdit({
+      root: x.metaRoot,
+      category: x.meta?.category ?? '',
+      subtopic: x.meta?.subtopic ?? '',
+      status: x.meta?.status ?? '',
+      priority: x.meta?.priority ?? '',
+      tags: x.tags,
+      tagInput: '',
+    });
+  const saveMeta = async () => {
+    if (!metaEdit) return;
+    const tags = [...metaEdit.tags, ...metaEdit.tagInput.split(',')].map((s) => s.trim()).filter(Boolean);
+    const ok = await run(() =>
+      api.put(`/projects/${pid}/threads/${metaEdit.root}`, {
+        category: metaEdit.category.trim() || null,
+        subtopic: metaEdit.subtopic.trim() || null,
+        status: metaEdit.status || null,
+        priority: metaEdit.priority || null,
+        tags,
+      }),
+    );
+    if (ok) {
+      setMetaEdit(null);
+      loadMetas();
+    }
+  };
+  const statusLabel = (st: ThreadStatus) => t(`pm_st_${st}` as never);
   // Nesting depth adapts to the available width: each level indents ~43 px and a reply box keeps room
   // for a full readable line (~640 px). Phones always get 2 levels; wide monitors up to 8.
   const maxDepth = width <= 640 ? 2 : Math.max(3, Math.min(8, Math.floor((width - 52 - 640) / 43) + 1));
@@ -629,10 +718,42 @@ function Correspondence() {
                 </span>
               );
             })}
-          {(firm || ql) && (
-            <button type="button" class="linkbtn clear-f" onClick={() => { setFirm(null); setQ(''); }}>
+          {anyFilter && (
+            <button type="button" class="linkbtn clear-f" onClick={clearAll}>
               × {t('pm_clear_filter')}
             </button>
+          )}
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div class="th-filters">
+          <select class="input sm" value={fCat} onChange={(e) => setFCat(e.currentTarget.value)} aria-label={t('pm_category')}>
+            <option value="">{t('pm_all_categories')}</option>
+            {categories.map((c) => (
+              <option value={c}>{c}</option>
+            ))}
+            <option value="__none">{t('pm_no_category')}</option>
+          </select>
+          <select class="input sm" value={fStatus} onChange={(e) => setFStatus(e.currentTarget.value)} aria-label={t('pm_status')}>
+            <option value="">{t('pm_all_statuses')}</option>
+            {THREAD_STATUSES.map((st) => (
+              <option value={st}>{statusLabel(st)}</option>
+            ))}
+          </select>
+          <select class="input sm" value={fPrio} onChange={(e) => setFPrio(e.currentTarget.value)} aria-label={t('pm_priority')}>
+            <option value="">{t('pm_all_priorities')}</option>
+            <option value="high">{t('pm_prio_high')}</option>
+            <option value="normal">{t('pm_prio_normal')}</option>
+            <option value="low">{t('pm_prio_low')}</option>
+          </select>
+          {allTags.length > 0 && (
+            <select class="input sm" value={fTag} onChange={(e) => setFTag(e.currentTarget.value)} aria-label={t('pm_tags')}>
+              <option value="">{t('pm_all_tags')}</option>
+              {allTags.map((g) => (
+                <option value={g}>#{g}</option>
+              ))}
+            </select>
           )}
         </div>
       )}
@@ -640,22 +761,171 @@ function Correspondence() {
       {!threads.length && <div class="empty">{t('pm_mail_empty')}</div>}
 
       <div class="threads" ref={threadsRef}>
-        {threads.map((ms) => {
-          const roots = ms.filter((m) => !m.reply_to || !byId.has(m.reply_to));
-          const first = roots[0] ?? ms[0];
-          return (
-            <section class="thread">
-              <header class="thread-h">
-                <b>{first.subject ? hl(first.subject) : <span class="auto-title">{hl(autoSubject(first.body) ?? '—')}</span>}</b>
-                <span class="meta">
-                  {ms.length} {ms.length % 10 === 1 && ms.length % 100 !== 11 ? t('pm_message') : [2, 3, 4].includes(ms.length % 10) && ![12, 13, 14].includes(ms.length % 100) ? t('pm_messages_few') : t('pm_messages')} · {fmtStamp(ms[ms.length - 1].sent_at, lang)}
-                </span>
-              </header>
-              {renderList(roots, 0)}
-            </section>
-          );
-        })}
+        {sections.map(({ cat, list }) => (
+          <div class="th-section">
+            {categories.length > 0 && (
+              <h3 class="th-cat">
+                {cat ?? <span class="faint">{t('pm_no_category')}</span>}
+                <small>{list.length}</small>
+              </h3>
+            )}
+            {list.map((x) => {
+              const { ms, roots, first } = x;
+              const folded = x.status === 'resolved' && fStatus !== 'resolved' && !openResolved.has(x.metaRoot) && !ql;
+              const n = ms.length;
+              return (
+                <section class={'thread' + (x.status === 'resolved' ? ' resolved' : '')}>
+                  <header class="thread-h">
+                    <b>{first.subject ? hl(first.subject) : <span class="auto-title">{hl(autoSubject(first.body) ?? '—')}</span>}</b>
+                    {x.meta?.subtopic && <span class="th-sub">› {x.meta.subtopic}</span>}
+                    <button type="button" class={'th-status st-' + x.status} title={x.auto ? t('pm_status_auto_hint') : ''} onClick={() => openMeta(x)}>
+                      <i />
+                      {statusLabel(x.status)}
+                      {x.auto && <small> · auto</small>}
+                    </button>
+                    {x.meta?.priority === 'high' && <span class="th-prio hi">↑ {t('pm_prio_high')}</span>}
+                    {x.meta?.priority === 'low' && <span class="th-prio lo">↓ {t('pm_prio_low')}</span>}
+                    {x.tags.map((g) => (
+                      <button type="button" class={'th-tag' + (fTag === g ? ' on' : '')} onClick={() => setFTag(fTag === g ? '' : g)}>
+                        #{g}
+                      </button>
+                    ))}
+                    <span class="meta">
+                      {n} {n % 10 === 1 && n % 100 !== 11 ? t('pm_message') : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? t('pm_messages_few') : t('pm_messages')} · {fmtStamp(x.last.sent_at, lang)}
+                    </span>
+                    <button type="button" class="linkbtn th-edit" onClick={() => openMeta(x)}>
+                      {x.meta ? t('pm_edit_thread') : t('pm_categorize')}
+                    </button>
+                  </header>
+                  {folded ? (
+                    <button type="button" class="linkbtn th-unfold" onClick={() => setOpenResolved(new Set([...openResolved, x.metaRoot]))}>
+                      {t('pm_show_resolved')} ({n})
+                    </button>
+                  ) : (
+                    <>
+                      {renderList(roots, 0)}
+                      {x.status === 'resolved' && openResolved.has(x.metaRoot) && (
+                        <button
+                          type="button"
+                          class="linkbtn th-unfold"
+                          onClick={() => {
+                            const s2 = new Set(openResolved);
+                            s2.delete(x.metaRoot);
+                            setOpenResolved(s2);
+                          }}
+                        >
+                          {t('pm_hide_resolved')}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        ))}
       </div>
+
+      {metaEdit && (
+        <Modal
+          title={t('pm_thread_meta')}
+          onClose={() => setMetaEdit(null)}
+          footer={
+            <>
+              <button class="btn" onClick={() => setMetaEdit(null)}>{t('cancel')}</button>
+              <button class="btn solid" onClick={saveMeta}>{t('save')}</button>
+            </>
+          }
+        >
+          <div class="form">
+            <div class="two">
+              <label class="field">
+                <span class="label">{t('pm_category')}</span>
+                <input class="input" list="ll-cats" placeholder={t('pm_category_ph')} value={metaEdit.category} onInput={(e) => setMetaEdit({ ...metaEdit, category: e.currentTarget.value })} />
+                <datalist id="ll-cats">
+                  {categories.map((c) => (
+                    <option value={c} />
+                  ))}
+                </datalist>
+              </label>
+              <label class="field">
+                <span class="label">{t('pm_subtopic')}</span>
+                <input class="input" list="ll-subs" placeholder={t('pm_subtopic_ph')} value={metaEdit.subtopic} onInput={(e) => setMetaEdit({ ...metaEdit, subtopic: e.currentTarget.value })} />
+                <datalist id="ll-subs">
+                  {[...new Set(allThreads.filter((x) => (x.meta?.category ?? '') === metaEdit.category.trim()).map((x) => x.meta?.subtopic).filter(Boolean) as string[])].map((c) => (
+                    <option value={c} />
+                  ))}
+                </datalist>
+              </label>
+            </div>
+            <div class="field">
+              <span class="label">{t('pm_status')}</span>
+              <div class="seg wrap">
+                <button type="button" aria-pressed={!metaEdit.status} onClick={() => setMetaEdit({ ...metaEdit, status: '' })}>
+                  {t('pm_status_auto')}
+                </button>
+                {THREAD_STATUSES.map((st) => (
+                  <button type="button" aria-pressed={metaEdit.status === st} onClick={() => setMetaEdit({ ...metaEdit, status: st })}>
+                    {statusLabel(st)}
+                  </button>
+                ))}
+              </div>
+              <span class="hint">{t('pm_status_auto_hint')}</span>
+            </div>
+            <div class="field">
+              <span class="label">{t('pm_priority')}</span>
+              <div class="seg">
+                {(['low', '', 'high'] as const).map((pr) => (
+                  <button type="button" aria-pressed={metaEdit.priority === pr} onClick={() => setMetaEdit({ ...metaEdit, priority: pr })}>
+                    {pr === 'low' ? t('pm_prio_low') : pr === 'high' ? t('pm_prio_high') : t('pm_prio_normal')}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div class="field">
+              <span class="label">{t('pm_tags')}</span>
+              <div class="tag-input">
+                {metaEdit.tags.map((g) => (
+                  <span class="th-tag on">
+                    #{g}
+                    <button type="button" aria-label="×" onClick={() => setMetaEdit({ ...metaEdit, tags: metaEdit.tags.filter((x) => x !== g) })}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <input
+                  list="ll-tags"
+                  placeholder={t('pm_tags_ph')}
+                  value={metaEdit.tagInput}
+                  onInput={(e) => {
+                    const v = e.currentTarget.value;
+                    if (v.includes(',')) {
+                      const parts = v.split(',');
+                      const done = parts.slice(0, -1).map((s) => s.trim()).filter((s) => s && !metaEdit.tags.includes(s));
+                      setMetaEdit({ ...metaEdit, tags: [...metaEdit.tags, ...done], tagInput: parts[parts.length - 1] });
+                    } else setMetaEdit({ ...metaEdit, tagInput: v });
+                  }}
+                  onKeyDown={(e) => {
+                    const v = metaEdit.tagInput.trim();
+                    if (e.key === 'Enter' && v) {
+                      e.preventDefault();
+                      if (!metaEdit.tags.includes(v)) setMetaEdit({ ...metaEdit, tags: [...metaEdit.tags, v], tagInput: '' });
+                      else setMetaEdit({ ...metaEdit, tagInput: '' });
+                    } else if (e.key === 'Backspace' && !metaEdit.tagInput && metaEdit.tags.length) {
+                      setMetaEdit({ ...metaEdit, tags: metaEdit.tags.slice(0, -1) });
+                    }
+                  }}
+                />
+                <datalist id="ll-tags">
+                  {allTags.map((g) => (
+                    <option value={g} />
+                  ))}
+                </datalist>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {add && (
         <Modal
@@ -672,6 +942,7 @@ function Correspondence() {
                   if (await run(() => (id ? api.patch(`/correspondence/${id}`, data) : api.post(`/projects/${pid}/correspondence`, data)))) {
                     setAdd(null);
                     load();
+                    loadMetas();
                   }
                 }}
               >
@@ -727,6 +998,23 @@ function Correspondence() {
               <span class="label">{t('pm_subject')}</span>
               <input class="input" placeholder={t('pm_subject_auto')} value={add.subject ?? ''} onInput={(e) => setAdd({ ...add, subject: e.currentTarget.value })} />
             </label>
+            {!add.id && !add.reply_to && (
+              <div class="two">
+                <label class="field">
+                  <span class="label">{t('pm_category')}</span>
+                  <input class="input" list="ll-cats-new" placeholder={t('pm_optional')} value={add.category ?? ''} onInput={(e) => setAdd({ ...add, category: e.currentTarget.value })} />
+                  <datalist id="ll-cats-new">
+                    {categories.map((c) => (
+                      <option value={c} />
+                    ))}
+                  </datalist>
+                </label>
+                <label class="field">
+                  <span class="label">{t('pm_subtopic')}</span>
+                  <input class="input" placeholder={t('pm_optional')} value={add.subtopic ?? ''} onInput={(e) => setAdd({ ...add, subtopic: e.currentTarget.value })} />
+                </label>
+              </div>
+            )}
             <div class="field">
               <span class="label">{t('pm_body')}</span>
               <RichEditor html={add.body_html ?? (add.body ? textToHtml(add.body) : '')} onChange={(html, text) => setAdd((cur) => (cur ? { ...cur, body_html: html, body: text } : cur))} />
