@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, ApiError, type Item } from '../api';
 import { fmtDate, fmtNum, fmtStamp, useT } from '../i18n';
 import { go, useApp } from '../state';
@@ -278,6 +278,15 @@ function Correspondence() {
   const [colors, setColors] = useState<Record<string, SenderColor>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const threadsRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(() => (typeof innerWidth === 'number' ? innerWidth : 1280));
+  useEffect(() => {
+    const el = threadsRef.current;
+    if (!el || typeof ResizeObserver !== 'function') return;
+    const ro = new ResizeObserver(([e]) => setWidth(Math.round(e.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [linking, setLinking] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
   const [add, setAdd] = useState<Record<string, string> | null>(null);
@@ -367,7 +376,9 @@ function Correspondence() {
     .map((ms) => [...ms].sort((a, b) => a.sent_at - b.sent_at))
     .filter((ms) => !ql || ms.some((m) => `${m.subject} ${m.from_addr} ${m.to_addr} ${m.body}`.toLowerCase().includes(ql)))
     .sort((a, b) => a[a.length - 1].sent_at - b[b.length - 1].sent_at);
-  const maxDepth = typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches ? 2 : 4;
+  // Nesting depth adapts to the available width: each level indents ~43 px and a reply box keeps room
+  // for a full readable line (~640 px). Phones always get 2 levels; wide monitors up to 8.
+  const maxDepth = width <= 640 ? 2 : Math.max(3, Math.min(8, Math.floor((width - 52 - 640) / 43) + 1));
   const toggleKids = (id: string) => {
     const n = new Set(collapsed);
     n.has(id) ? n.delete(id) : n.add(id);
@@ -565,7 +576,7 @@ function Correspondence() {
 
       {!threads.length && <div class="empty">{t('pm_mail_empty')}</div>}
 
-      <div class="threads">
+      <div class="threads" ref={threadsRef}>
         {threads.map((ms) => {
           const roots = ms.filter((m) => !m.reply_to || !byId.has(m.reply_to));
           const first = roots[0] ?? ms[0];
