@@ -346,6 +346,7 @@ function Correspondence() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulkCat, setBulkCat] = useState('');
   const [bulkTag, setBulkTag] = useState('');
+  const [gridOpen, setGridOpen] = useState<Set<string>>(new Set());
   const canChange = (m: Mail) => app.me.role === 'admin' || (!!m.created_by && m.created_by === app.me.id);
   const pad = (n: number) => String(n).padStart(2, '0');
   const replyTo = (m: Mail) =>
@@ -535,6 +536,17 @@ function Correspondence() {
     };
     setMetas((m) => ({ ...m, [x.metaRoot]: { root_id: x.metaRoot, ...next, tags: JSON.stringify(next.tags) } }));
     return run(() => api.put(`/projects/${pid}/threads/${x.metaRoot}`, next));
+  };
+  /** Local "YYYY-MM-DDTHH:MM" for <input type="datetime-local">. */
+  const toLocalInput = (ms: number) => {
+    const d = new Date(ms);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const saveSentAt = async (m: Mail, v: string) => {
+    if (!v || v === toLocalInput(m.sent_at)) return;
+    const [on, tm] = v.split('T');
+    const off = new Date(`${on}T${tm}:00`).getTimezoneOffset();
+    if (await run(() => api.patch(`/correspondence/${m.id}`, { sent_on: on, sent_time: tm, tz_offset: String(off) }))) load();
   };
   const bulk = async (f: (x: ThreadInfo) => MetaPatch) => {
     const list = allThreads.filter((x) => picked.has(x.metaRoot));
@@ -875,7 +887,18 @@ function Correspondence() {
                       onChange={(e) => setPicked(e.currentTarget.checked ? new Set(threads.map((x) => x.metaRoot)) : new Set())}
                     />
                   </th>
-                  <th>{t('pm_subject')}</th>
+                  <th>
+                    <button
+                      type="button"
+                      class="gx"
+                      aria-expanded={threads.length > 0 && threads.every((x) => gridOpen.has(x.metaRoot))}
+                      title={t('pm_toggle_all_messages')}
+                      onClick={() => setGridOpen(threads.every((x) => gridOpen.has(x.metaRoot)) ? new Set() : new Set(threads.map((x) => x.metaRoot)))}
+                    >
+                      ▸
+                    </button>
+                    {t('pm_subject')}
+                  </th>
                   <th>{t('pm_category')}</th>
                   <th>{t('pm_subtopic')}</th>
                   <th>{t('pm_status')}</th>
@@ -896,7 +919,7 @@ function Correspondence() {
                         </td>
                       </tr>
                     )}
-                    {list.map((x) => (
+                    {list.flatMap((x) => [
                       <tr class={picked.has(x.metaRoot) ? 'picked' : ''}>
                         <td class="pick">
                           <input
@@ -910,6 +933,19 @@ function Correspondence() {
                           />
                         </td>
                         <td class="th-title-cell">
+                          <button
+                            type="button"
+                            class="gx"
+                            aria-expanded={gridOpen.has(x.metaRoot)}
+                            title={gridOpen.has(x.metaRoot) ? t('pm_hide_messages') : t('pm_show_messages')}
+                            onClick={() => {
+                              const n = new Set(gridOpen);
+                              n.has(x.metaRoot) ? n.delete(x.metaRoot) : n.add(x.metaRoot);
+                              setGridOpen(n);
+                            }}
+                          >
+                            ▸
+                          </button>
                           <button
                             type="button"
                             class="linkbtn"
@@ -959,8 +995,47 @@ function Correspondence() {
                         </td>
                         <td class="r k">{x.ms.length}</td>
                         <td class="k">{fmtStamp(x.last.sent_at, lang)}</td>
-                      </tr>
-                    ))}
+                      </tr>,
+                      ...(gridOpen.has(x.metaRoot)
+                        ? x.ms.map((m) => {
+                            const a = parseAddr(m.from_addr);
+                            const par = m.reply_to ? byId.get(m.reply_to) : undefined;
+                            const early = !!par && m.sent_at < par.sent_at;
+                            const editable = canChange(m) && m.source === 'manual';
+                            return (
+                              <tr class={'msg-row sc-' + colorOf(senderKey(m.from_addr))}>
+                                <td class="pick" />
+                                <td class="msg-who" colSpan={2}>
+                                  <i class="dot" />
+                                  <b>{a.name || a.email || t('pm_unknown_sender')}</b>
+                                  <span class={'tag' + (m.direction === 'out' ? ' on' : '')}>{m.direction === 'out' ? t('pm_out') : t('pm_in')}</span>
+                                  {par && <span class="faint"> ↪ {parseAddr(par.from_addr).name || '—'}</span>}
+                                </td>
+                                <td colSpan={4} class="msg-snip">{(m.body || m.subject || '').replace(/\s+/g, ' ').slice(0, 110)}</td>
+                                <td colSpan={2}>
+                                  <span class="msg-date">
+                                    <input
+                                      key={`${m.id}-${m.sent_at}`}
+                                      class="cell date-cell"
+                                      type="datetime-local"
+                                      defaultValue={toLocalInput(m.sent_at)}
+                                      disabled={!editable}
+                                      title={editable ? t('pm_sent_at') : t('pm_date_locked')}
+                                      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                                      onBlur={(e) => saveSentAt(m, e.currentTarget.value)}
+                                    />
+                                    {early && (
+                                      <span class="warn-ic" title={t('pm_date_before_parent')}>
+                                        ⚠
+                                      </span>
+                                    )}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        : []),
+                    ])}
                   </>
                 ))}
               </tbody>

@@ -666,3 +666,21 @@ table.threads-sheet { min-width: 1000px; }
 .rt-sw i { width: 14px; height: 14px; border-radius: 50%; display: block; }
 .tc-sw-red i { background: #dc2626; } .tc-sw-yellow i { background: #eab308; } .tc-sw-green i { background: #16a34a; }
 .tc-sw-none i { background: linear-gradient(135deg, transparent 45%, var(--bad) 45%, var(--bad) 55%, transparent 55%); border: 1.5px solid var(--hair-strong); }
+
+/* ---------- Prepiska grid: message rows ---------- */
+.gx { border: 0; background: none; color: var(--faint); cursor: pointer; width: 18px; padding: 0; margin-right: 4px; font-size: .8rem; transition: transform .15s; display: inline-block; }
+.gx[aria-expanded="true"] { transform: rotate(90deg); color: var(--ink); }
+.threads-sheet td.th-title-cell { white-space: nowrap; }
+.threads-sheet td.th-title-cell .gx { vertical-align: middle; }
+.threads-sheet td.th-title-cell .linkbtn { display: inline-block; vertical-align: middle; max-width: calc(100% - 26px); }
+.threads-sheet tr.msg-row td { background: var(--logbg); height: 30px; font-size: .76rem; }
+.threads-sheet tr.msg-row td.msg-who { padding-left: 30px; white-space: nowrap; }
+.msg-who .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--c); margin-right: 7px; vertical-align: middle; }
+.msg-who b { color: var(--ink); font-weight: 600; margin-right: 6px; }
+.msg-who .tag { font-size: .58rem; }
+tr.msg-row.sc-lw .dot { background: #101014; box-shadow: 0 0 0 1px var(--hair-strong); }
+.msg-snip { color: var(--faint); max-width: 420px; overflow: hidden; text-overflow: ellipsis; padding: 0 8px !important; }
+.msg-date { display: inline-flex; align-items: center; gap: 6px; }
+.date-cell { font: .72rem var(--mono); width: 190px; }
+.date-cell:disabled { color: var(--faint); cursor: not-allowed; }
+.warn-ic { color: #d97706; cursor: help; }

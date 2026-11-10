@@ -87,6 +87,17 @@ pm.patch('/correspondence/:id', async (c) => {
   }
   const m = await editableMail(c, id);
   if (m.source !== 'manual') fail(409, 'locked', 'Emails received automatically cannot be edited, only linked.');
+  // Date/time only (grid view): change when the message was sent and nothing else.
+  if (Object.keys(b).every((k) => ['sent_on', 'sent_time', 'tz_offset'].includes(k))) {
+    const on = date(b.sent_on);
+    if (!on) fail(400, 'bad_date', 'Enter a date.');
+    const tm = typeof b.sent_time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(b.sent_time) ? b.sent_time : '12:00';
+    const off = Number.isFinite(Number(b.tz_offset)) ? Number(b.tz_offset) : 0;
+    await c.env.DB.prepare('UPDATE correspondence SET sent_at = ?, edited_at = ? WHERE id = ?')
+      .bind(Date.parse(`${on}T${tm}:00Z`) + off * 60_000, now(), id)
+      .run();
+    return c.json({ ok: true });
+  }
   const subject = str(b.subject, 300);
   const text = str(b.body, 100000);
   if (!subject && !text) fail(400, 'empty', 'Add a subject or the message text.');
