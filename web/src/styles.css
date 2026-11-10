@@ -492,3 +492,7 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 .tl-pop button.danger { color: var(--bad); }
 .btn.solid.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 @media (max-width: 640px) { .tl-h .tl-menu { position: absolute; right: 10px; top: 10px; } .tl-box { position: relative; } .tl-h { padding-right: 28px; } }
+/* Boxes hug their content; long text wraps inside a readable max width. */
+.tl-box { justify-self: start; width: fit-content; min-width: min(320px, 100%); max-width: min(640px, 100%); }
+.tl-h time { margin-left: auto; padding-left: 12px; }
+@media (max-width: 640px) { .tl-h time { padding-left: 0; } }
