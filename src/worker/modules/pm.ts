@@ -99,7 +99,7 @@ pm.delete('/correspondence/:id', async (c) => {
 });
 
 // Sender colours for the Threads-style correspondence view. Anyone on the team may change them.
-const SENDER_COLORS = ['slate', 'sage', 'sand', 'clay', 'plum', 'teal', 'olive', 'rose', 'stone'];
+const SENDER_COLORS = ['red', 'orange', 'amber', 'yellow', 'lime', 'green', 'teal', 'cyan', 'blue', 'indigo', 'violet', 'pink'];
 
 pm.get('/projects/:pid/senders', async (c) => {
   const { results } = await c.env.DB.prepare('SELECT sender_key, color FROM correspondence_senders WHERE project_id = ?').bind(c.req.param('pid')).all();

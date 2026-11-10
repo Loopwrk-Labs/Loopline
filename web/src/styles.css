@@ -422,13 +422,22 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 
 /* ---------- correspondence · threads ---------- */
 :root {
-  /* Client companies: muted, desaturated tones so the page stays calm next to the monochrome brand. */
-  --sc-slate:#5d7186; --sc-sage:#6b8566; --sc-sand:#a88552; --sc-clay:#a8664f; --sc-plum:#80637c;
-  --sc-teal:#4f817e; --sc-olive:#7a7a48; --sc-rose:#a96b78; --sc-stone:#7d7a74;
-  --sc-tint:8%; --sc-edge:30%;
+  /* Client companies: bright 12-colour palette. */
+  --sc-red:#ef4444; --sc-orange:#f97316; --sc-amber:#f59e0b; --sc-yellow:#eab308; --sc-lime:#84cc16; --sc-green:#22c55e; --sc-teal:#14b8a6; --sc-cyan:#06b6d4; --sc-blue:#3b82f6; --sc-indigo:#6366f1; --sc-violet:#a855f7; --sc-pink:#ec4899;
+  --sc-tint:14%; --sc-edge:60%;
 }
-.sc-slate{--c:var(--sc-slate)} .sc-sage{--c:var(--sc-sage)} .sc-sand{--c:var(--sc-sand)} .sc-clay{--c:var(--sc-clay)} .sc-plum{--c:var(--sc-plum)}
-.sc-teal{--c:var(--sc-teal)} .sc-olive{--c:var(--sc-olive)} .sc-rose{--c:var(--sc-rose)} .sc-stone{--c:var(--sc-stone)}
+.sc-red{--c:var(--sc-red);--c-on:#ffffff}
+.sc-orange{--c:var(--sc-orange);--c-on:#ffffff}
+.sc-amber{--c:var(--sc-amber);--c-on:#141417}
+.sc-yellow{--c:var(--sc-yellow);--c-on:#141417}
+.sc-lime{--c:var(--sc-lime);--c-on:#141417}
+.sc-green{--c:var(--sc-green);--c-on:#141417}
+.sc-teal{--c:var(--sc-teal);--c-on:#ffffff}
+.sc-cyan{--c:var(--sc-cyan);--c-on:#141417}
+.sc-blue{--c:var(--sc-blue);--c-on:#ffffff}
+.sc-indigo{--c:var(--sc-indigo);--c-on:#ffffff}
+.sc-violet{--c:var(--sc-violet);--c-on:#ffffff}
+.sc-pink{--c:var(--sc-pink);--c-on:#ffffff}
 /* Loopwrk (brand pravilnik): Void / Surface / Ink / Dim / Faint, red only as the small dot. */
 .sc-lw { --c:#8f8e95; }
 .form .three { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
@@ -440,7 +449,7 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
   background: color-mix(in srgb, var(--c) var(--sc-tint), var(--surface)); }
 .sender-chip i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
 .sender-chip small { font: .68rem/1 var(--mono); color: var(--faint); }
-.swatches { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; display: grid; grid-template-columns: repeat(5, 22px); gap: 6px;
+.swatches { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; display: grid; grid-template-columns: repeat(6, 22px); gap: 6px;
   padding: 8px; border-radius: 8px; background: var(--surface); border: 1px solid var(--hair-strong); box-shadow: 0 10px 30px -10px var(--shadow); }
 .sw { width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--c); cursor: pointer; padding: 0; }
 .sw.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--c); }
@@ -451,7 +460,7 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 .tl-item { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 12px; }
 .tl-rail { position: relative; display: flex; justify-content: center; }
 .tl-av { width: 36px; height: 36px; border-radius: 50%; border: 0; cursor: pointer; flex: none; margin-top: 2px;
-  background: var(--c); color: #fff; font: 600 .74rem/1 var(--mono); letter-spacing: .02em; }
+  background: var(--c); color: var(--c-on, #fff); font: 600 .74rem/1 var(--mono); letter-spacing: .02em; }
 .tl-av:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 30%, transparent); }
 .tl-rail .swatches { top: 42px; }
 .tl-box { margin-bottom: 14px; padding: 12px 14px; border-radius: 12px; min-width: 0;
@@ -469,8 +478,8 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
 .tl-actions { margin-left: auto; }
 .item-chip { font: 500 .7rem/1 var(--mono); padding: 4px 7px; border-radius: 4px; border: 1px solid var(--hair-strong); color: var(--ink); text-decoration: none; background: var(--surface); }
 .thread-add { margin-left: 52px; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sc-tint:14%; --sc-edge:38%; } }
-:root[data-theme="dark"] { --sc-tint:14%; --sc-edge:38%; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sc-tint:22%; --sc-edge:65%; } }
+:root[data-theme="dark"] { --sc-tint:22%; --sc-edge:65%; }
 @media (max-width: 640px) {
   .tl-item { grid-template-columns: 30px minmax(0,1fr); gap: 8px; }
   .tl-av { width: 30px; height: 30px; font-size: .64rem; }

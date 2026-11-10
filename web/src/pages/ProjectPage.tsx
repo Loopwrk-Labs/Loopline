@@ -218,8 +218,8 @@ function Overview() {
 }
 
 // ---------------- correspondence (Threads-style) ----------------
-// Muted palette for client companies. Loopwrk (internal domains) always uses the brand style ('lw'), never a palette colour.
-const SENDER_COLORS = ['slate', 'sage', 'sand', 'clay', 'plum', 'teal', 'olive', 'rose', 'stone'] as const;
+// Bright 12-colour palette for client companies. Loopwrk (internal) always uses the brand style ('lw'), never a palette colour.
+const SENDER_COLORS = ['red', 'orange', 'amber', 'yellow', 'lime', 'green', 'teal', 'cyan', 'blue', 'indigo', 'violet', 'pink'] as const;
 const INTERNAL_DOMAINS = ['lpwrk.dev'];
 type SenderColor = (typeof SENDER_COLORS)[number];
 
@@ -247,11 +247,11 @@ function initialsFrom(name: string): string {
   if (!parts.length) return '?';
   return ((parts[0][0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : parts[0][1] ?? '')).toUpperCase();
 }
-/** Stable default colour per company (stone is never auto-assigned). */
+/** Stable default colour per company. */
 function autoColor(key: string): SenderColor {
   let h = 0;
   for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return SENDER_COLORS[h % (SENDER_COLORS.length - 1)];
+  return SENDER_COLORS[h % SENDER_COLORS.length];
 }
 const threadKeyOf = (m: Mail) => {
   const subj = (m.subject ?? '').replace(/^\s*((re|fw|fwd|aw|odg|sv)\s*(\[\d+\])?\s*:\s*)+/i, '').trim().toLowerCase();
