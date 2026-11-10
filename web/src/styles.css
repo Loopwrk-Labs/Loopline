@@ -528,3 +528,26 @@ table.cap { width: 100%; border-collapse: collapse; font-size: .8rem; font-varia
   .tl-kids > .tl-node::before { left: -14px; width: 16px; height: 17px; border-bottom-left-radius: 9px; }
   .tl-kids > .tl-node:not(:last-child)::after { left: -14px; }
 }
+
+/* ---------- rich text ---------- */
+.tl-rich { white-space: normal; }
+.tl-rich > :first-child { margin-top: 0; }
+.tl-rich > :last-child { margin-bottom: 0; }
+.tl-rich p { margin: 0 0 .7em; }
+.tl-rich ul, .tl-rich ol { margin: 0 0 .7em; padding-left: 1.4em; }
+.tl-rich li { margin: .15em 0; }
+.tl-rich a { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--c, var(--ink)) 70%, transparent); text-underline-offset: 2px; }
+.tl-rich blockquote { margin: 0 0 .7em; padding: 2px 0 2px 12px; border-left: 3px solid color-mix(in srgb, var(--c, var(--ink)) 50%, var(--hair-strong)); color: var(--dim); }
+.tl-body.clamp { display: block; -webkit-line-clamp: unset; max-height: 12.6em; overflow: hidden;
+  -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.rt { border: 1px solid var(--hair-strong); border-radius: 6px; background: var(--surface); overflow: hidden; }
+.rt:focus-within { border-color: var(--ink); }
+.rt-bar { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; padding: 4px; border-bottom: 1px solid var(--hair); background: var(--surface-2); }
+.rt-b { min-width: 30px; height: 28px; padding: 0 7px; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--ink);
+  font: 600 .82rem/1 var(--body); cursor: pointer; }
+.rt-b:hover { background: var(--glass-strong); border-color: var(--hair); }
+.rt-b.i { font-style: italic; font-family: Georgia, serif; }
+.rt-b.u { text-decoration: underline; }
+.rt-sep { width: 1px; height: 18px; background: var(--hair-strong); margin: 0 4px; }
+.rt-area { padding: 10px 12px; outline: none; line-height: 1.55; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
+.rt-area:empty::before { content: attr(data-ph); color: var(--faint); }

@@ -3,12 +3,13 @@ import { api, ApiError, type Item } from '../api';
 import { fmtDate, fmtNum, fmtStamp, useT } from '../i18n';
 import { go, useApp } from '../state';
 import { Icon, Modal } from '../components/ui';
+import { RichEditor, cleanHtml, textToHtml } from '../components/RichEditor';
 import { isLeaf } from '../hours';
 import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
 
 type Mail = {
   id: string; source: 'email' | 'manual'; direction: 'in' | 'out'; from_addr: string | null; to_addr: string | null; cc_addr: string | null;
-  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null; reply_to: string | null;
+  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null; reply_to: string | null; body_html: string | null;
 };
 type Decision = {
   id: string; title: string; decision: string; decided_by: string | null; decided_on: string | null; source: string | null; item_id: string | null;
@@ -325,6 +326,7 @@ function Correspondence() {
       to_addr: m.to_addr ?? '',
       subject: m.subject ?? '',
       body: m.body ?? '',
+      body_html: m.body_html ?? textToHtml(m.body ?? ''),
     });
   };
   const pid = app.project!.id;
@@ -470,7 +472,11 @@ function Correspondence() {
                   </button>
                 );
               })()}
-            <div class={'tl-body' + (long && !open ? ' clamp' : '')}>{m.body || <span class="faint">—</span>}</div>
+            {m.body_html ? (
+                <div class={'tl-body tl-rich' + (long && !open ? ' clamp' : '')} dangerouslySetInnerHTML={{ __html: cleanHtml(m.body_html) }} />
+              ) : (
+                <div class={'tl-body' + (long && !open ? ' clamp' : '')}>{m.body || <span class="faint">—</span>}</div>
+              )}
             {long && (
               <button type="button" class="linkbtn" onClick={() => toggle(m.id)}>
                 {open ? t('pm_show_less') : t('pm_show_more')}
@@ -664,10 +670,10 @@ function Correspondence() {
               <span class="label">{t('pm_subject')}</span>
               <input class="input" value={add.subject ?? ''} onInput={(e) => setAdd({ ...add, subject: e.currentTarget.value })} />
             </label>
-            <label class="field">
+            <div class="field">
               <span class="label">{t('pm_body')}</span>
-              <textarea class="textarea" style={{ minHeight: '200px' }} value={add.body ?? ''} onInput={(e) => setAdd({ ...add, body: e.currentTarget.value })} />
-            </label>
+              <RichEditor html={add.body_html ?? (add.body ? textToHtml(add.body) : '')} onChange={(html, text) => setAdd((cur) => (cur ? { ...cur, body_html: html, body: text } : cur))} />
+            </div>
           </div>
         </Modal>
       )}

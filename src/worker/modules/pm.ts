@@ -4,6 +4,7 @@ import type { AppEnv, Env } from '../lib/types';
 import { body, date, fail, isManager, now, num, requireRole, str, uid } from '../lib/http';
 import { randomHex, sha256 } from '../lib/crypto';
 import { getProject } from './projects';
+import { sanitizeRichText } from '../lib/richtext';
 
 /**
  * Project management: client correspondence, customer acceptance and change
@@ -39,11 +40,11 @@ pm.post('/projects/:pid/correspondence', async (c) => {
   if (replyTo && !(await c.env.DB.prepare('SELECT 1 FROM correspondence WHERE id = ? AND project_id = ?').bind(replyTo, pid).first())) replyTo = null;
   const id = uid();
   await c.env.DB.prepare(
-    `INSERT INTO correspondence (id, project_id, item_id, reply_to, source, direction, from_addr, to_addr, subject, body, sent_at, created_by, created_at)
-     VALUES (?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO correspondence (id, project_id, item_id, reply_to, source, direction, from_addr, to_addr, subject, body, body_html, sent_at, created_by, created_at)
+     VALUES (?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
-      id, pid, str(b.item_id, 64), replyTo, b.direction === 'out' ? 'out' : 'in', str(b.from_addr, 300), str(b.to_addr, 500), subject, text ?? '',
+      id, pid, str(b.item_id, 64), replyTo, b.direction === 'out' ? 'out' : 'in', str(b.from_addr, 300), str(b.to_addr, 500), subject, text ?? '', await sanitizeRichText(b.body_html),
       sentOn ? Date.parse(`${sentOn}T${time}:00Z`) + offset * 60_000 : now(), c.get('user').id, now(),
     )
     .run();
@@ -79,9 +80,9 @@ pm.patch('/correspondence/:id', async (c) => {
   const time = typeof b.sent_time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(b.sent_time) ? b.sent_time : '12:00';
   const offset = Number.isFinite(Number(b.tz_offset)) ? Number(b.tz_offset) : 0;
   await c.env.DB.prepare(
-    `UPDATE correspondence SET direction = ?, from_addr = ?, to_addr = ?, subject = ?, body = ?, sent_at = ?, edited_at = ? WHERE id = ?`,
+    `UPDATE correspondence SET direction = ?, from_addr = ?, to_addr = ?, subject = ?, body = ?, body_html = ?, sent_at = ?, edited_at = ? WHERE id = ?`,
   )
-    .bind(b.direction === 'out' ? 'out' : 'in', str(b.from_addr, 300), str(b.to_addr, 500), subject, text ?? '', Date.parse(`${sentOn}T${time}:00Z`) + offset * 60_000, now(), id)
+    .bind(b.direction === 'out' ? 'out' : 'in', str(b.from_addr, 300), str(b.to_addr, 500), subject, text ?? '', await sanitizeRichText(b.body_html), Date.parse(`${sentOn}T${time}:00Z`) + offset * 60_000, now(), id)
     .run();
   return c.json({ ok: true });
 });
