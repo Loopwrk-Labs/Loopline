@@ -8,6 +8,31 @@ const DROP = new Set([
   'HEAD', 'TITLE', 'META', 'LINK', 'BASE', 'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'NOSCRIPT', 'CANVAS',
 ]);
 const SAFE_HREF = /^(https?:|mailto:)/i;
+/** Text colours. Stored as <span class="tc-…">; inside the editor the browser works with <font color>. */
+export const TEXT_COLORS = { red: '#dc2626', yellow: '#ca8a04', green: '#16a34a' } as const;
+type TextColor = keyof typeof TEXT_COLORS;
+const colorFromFont = (v: string | null): TextColor | null => {
+  const c = (v ?? '').trim().toLowerCase();
+  return (Object.keys(TEXT_COLORS) as TextColor[]).find((k) => TEXT_COLORS[k] === c) ?? null;
+};
+const colorFromSpan = (cls: string | null): TextColor | null => {
+  const m = (cls ?? '').trim().match(/^tc-(red|yellow|green)$/);
+  return m ? (m[1] as TextColor) : null;
+};
+/** Stored HTML → editor HTML (span.tc-x → font color) so colouring and un-colouring nest correctly while editing. */
+export function toEditorHtml(html: string): string {
+  const box = document.createElement('div');
+  box.innerHTML = html;
+  box.querySelectorAll('span').forEach((sp) => {
+    const c = colorFromSpan(sp.getAttribute('class'));
+    if (!c) return;
+    const f = document.createElement('font');
+    f.setAttribute('color', TEXT_COLORS[c]);
+    while (sp.firstChild) f.appendChild(sp.firstChild);
+    sp.replaceWith(f);
+  });
+  return box.innerHTML;
+}
 
 export function cleanHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -20,6 +45,17 @@ export function cleanHtml(html: string): string {
         const el = n as Element;
         const tag = el.tagName.toUpperCase();
         if (DROP.has(tag)) continue;
+        // Colour: only our three colours survive, as span.tc-*; any other colour/styling is unwrapped.
+        if (tag === 'FONT' || tag === 'SPAN') {
+          const c = tag === 'FONT' ? colorFromFont(el.getAttribute('color')) : colorFromSpan(el.getAttribute('class'));
+          if (c) {
+            const sp = document.createElement('span');
+            sp.className = 'tc-' + c;
+            walk(el, sp);
+            to.appendChild(sp);
+          } else walk(el, to);
+          continue;
+        }
         // Office / Gmail wrappers and inline styles are unwrapped; only the whitelisted structure survives.
         if (!ALLOW.has(tag)) {
           walk(el, to);
@@ -69,12 +105,19 @@ export function RichEditor({ html, onChange, minHeight = '200px' }: Props) {
   const { t } = useT();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (ref.current) ref.current.innerHTML = html; // set once; the editor owns its DOM afterwards
+    if (ref.current) ref.current.innerHTML = toEditorHtml(html); // set once; the editor owns its DOM afterwards
   }, []);
   const emit = () => ref.current && onChange(ref.current.innerHTML, htmlToText(ref.current));
   const cmd = (name: string, value?: string) => {
     ref.current?.focus();
     document.execCommand(name, false, value);
+    emit();
+  };
+  const color = (c: TextColor | null) => {
+    ref.current?.focus();
+    document.execCommand('styleWithCSS', false, 'false');
+    // "No colour" = paint with the normal text colour; that unknown colour is dropped when saving.
+    document.execCommand('foreColor', false, c ? TEXT_COLORS[c] : getComputedStyle(ref.current!).color);
     emit();
   };
   const link = () => {
@@ -114,6 +157,15 @@ export function RichEditor({ html, onChange, minHeight = '200px' }: Props) {
         <span class="rt-sep" />
         {B('↗', t('rt_link'), link)}
         {B('❝', t('rt_quote'), quote)}
+        <span class="rt-sep" />
+        {(Object.keys(TEXT_COLORS) as TextColor[]).map((c) => (
+          <button type="button" class={'rt-b rt-sw tc-sw-' + c} title={t(`rt_c_${c}` as never)} aria-label={t(`rt_c_${c}` as never)} onMouseDown={(e) => e.preventDefault()} onClick={() => color(c)}>
+            <i />
+          </button>
+        ))}
+        <button type="button" class="rt-b rt-sw tc-sw-none" title={t('rt_c_none')} aria-label={t('rt_c_none')} onMouseDown={(e) => e.preventDefault()} onClick={() => color(null)}>
+          <i />
+        </button>
       </div>
       <div
         ref={ref}

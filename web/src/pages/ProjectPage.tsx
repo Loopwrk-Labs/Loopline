@@ -354,7 +354,8 @@ function Correspondence() {
         reply_to: m.id,
         direction: m.direction === 'in' ? 'out' : 'in',
         subject: m.subject ? (/^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`) : '',
-        from_addr: m.direction === 'in' ? m.to_addr?.split(',')[0].trim() ?? '' : '',
+        // Replying to the client: we are the sender (their "To", or simply "Loopwrk"); replying to us: the client is.
+        from_addr: m.direction === 'in' ? m.to_addr?.split(',')[0].trim() || 'Loopwrk' : m.to_addr?.split(',')[0].trim() ?? '',
         to_addr: m.direction === 'in' ? m.from_addr ?? '' : m.to_addr ?? '',
         ...(m.item_id ? { item_id: m.item_id } : {}),
       }),

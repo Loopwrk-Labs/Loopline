@@ -9,6 +9,9 @@ const DROP = new Set([
   'noscript', 'canvas', 'xml',
 ]);
 const SAFE_HREF = /^(https?:|mailto:)/i;
+// Text colours: the editor produces <font color="…">; only these three are kept, stored as <span class="tc-…">.
+const FONT_COLORS: Record<string, string> = { '#dc2626': 'red', '#ca8a04': 'yellow', '#16a34a': 'green' };
+const SPAN_CLASS = /^tc-(red|yellow|green)$/;
 
 export async function sanitizeRichText(input: unknown, maxLen = 200_000): Promise<string | null> {
   if (typeof input !== 'string' || !input.trim()) return null;
@@ -16,6 +19,17 @@ export async function sanitizeRichText(input: unknown, maxLen = 200_000): Promis
     .on('*', {
       element(el) {
         const tag = el.tagName.toLowerCase();
+        if (tag === 'font' || tag === 'span') {
+          const c = tag === 'font' ? FONT_COLORS[(el.getAttribute('color') ?? '').trim().toLowerCase()] : SPAN_CLASS.exec((el.getAttribute('class') ?? '').trim())?.[1];
+          if (!c) {
+            el.removeAndKeepContent();
+            return;
+          }
+          for (const [name] of [...(el.attributes as unknown as Iterable<[string, string]>)]) el.removeAttribute(name);
+          (el as unknown as { tagName: string }).tagName = 'span'; // HTMLRewriter allows renaming; the types mark it readonly
+          el.setAttribute('class', 'tc-' + c);
+          return;
+        }
         if (DROP.has(tag)) {
           el.remove();
           return;
