@@ -314,6 +314,8 @@ export const en = {
   pm_mail_lede: "Correspondence grouped by subject. Messages in order, latest activity at the bottom.",
   pm_add_mail: "Add email",
   pm_mail_empty: "No correspondence yet.",
+  pm_import: "Import",
+  pm_src_import: "imported",
   pm_tags_comma: "tags, comma separated",
   pm_edit_meta: "Edit category and tags",
   pm_filter_tag: "Show only this tag",

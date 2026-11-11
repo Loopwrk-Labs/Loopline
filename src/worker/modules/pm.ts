@@ -99,7 +99,7 @@ pm.patch('/correspondence/:id', async (c) => {
     return c.json({ ok: true });
   }
   const m = await editableMail(c, id);
-  if (m.source !== 'manual') fail(409, 'locked', 'Emails received automatically cannot be edited, only linked.');
+  if (m.source === 'email') fail(409, 'locked', 'Emails received automatically cannot be edited, only linked.');
   // Date/time only (grid view): change when the message was sent and nothing else.
   if (Object.keys(b).every((k) => ['sent_on', 'sent_time', 'tz_offset'].includes(k))) {
     const on = date(b.sent_on);
@@ -138,6 +138,83 @@ pm.delete('/correspondence/:id', async (c) => {
     c.env.DB.prepare('UPDATE decisions SET correspondence_id = NULL WHERE correspondence_id = ?').bind(id),
     c.env.DB.prepare('UPDATE correspondence SET reply_to = NULL WHERE reply_to = ?').bind(id),
     c.env.DB.prepare('DELETE FROM correspondence WHERE id = ?').bind(id),
+  ]);
+  return c.json({ ok: true });
+});
+
+// Import of conversations from files. The browser parses the file and sends finished messages;
+// replies are linked by the client's keys. Each import can be undone as a whole.
+pm.post('/projects/:pid/correspondence/import', async (c) => {
+  const pid = c.req.param('pid');
+  await getProject(c.env.DB, pid);
+  const b = await body(c);
+  const list = Array.isArray(b.messages) ? (b.messages as Record<string, unknown>[]) : [];
+  if (!list.length) fail(400, 'empty', 'Nothing to import.');
+  if (list.length > 3000) fail(400, 'too_many', 'At most 3,000 messages per import.');
+  let parentInProject = str(b.reply_to, 64);
+  if (parentInProject && !(await c.env.DB.prepare('SELECT 1 FROM correspondence WHERE id = ? AND project_id = ?').bind(parentInProject, pid).first())) parentInProject = null;
+  const importId = uid();
+  const user = c.get('user').id;
+  const keyToId = new Map<string, string>();
+  const stmts: D1PreparedStatement[] = [];
+  for (const m of list) {
+    const id = uid();
+    const key = str(m.key, 64);
+    if (key) keyToId.set(key, id);
+    const text = str(m.body, 100000) ?? '';
+    const subject = str(m.subject, 300);
+    if (!text && !subject) continue;
+    const rk = str(m.reply_key, 64);
+    const replyTo = rk ? keyToId.get(rk) ?? null : m.reply_to_existing ? parentInProject : null;
+    const sentAt = Number.isFinite(Number(m.sent_at)) ? Math.round(Number(m.sent_at)) : now();
+    stmts.push(
+      c.env.DB.prepare(
+        `INSERT INTO correspondence (id, project_id, reply_to, source, direction, from_addr, to_addr, subject, body, body_html, sent_at, created_by, created_at, category, subtopic, tags, import_id)
+         VALUES (?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        id, pid, replyTo, m.direction === 'out' ? 'out' : 'in', str(m.from_addr, 300), str(m.to_addr, 500), subject, text,
+        await sanitizeRichText(m.body_html), sentAt, user, now(), str(m.category, 80), str(m.subtopic, 80), JSON.stringify(cleanTags(m.tags)), importId,
+      ),
+    );
+  }
+  if (!stmts.length) fail(400, 'empty', 'Nothing to import.');
+  const count = stmts.length;
+  stmts.unshift(
+    c.env.DB.prepare('INSERT INTO correspondence_imports (id, project_id, file_name, format, count, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
+      importId, pid, str(b.file_name, 200), str(b.format, 30), count, user, now(),
+    ),
+  );
+  // D1 batches are transactional; very large imports go in chunks.
+  for (let i = 0; i < stmts.length; i += 400) await c.env.DB.batch(stmts.slice(i, i + 400));
+  return c.json({ import_id: importId, count });
+});
+
+pm.get('/projects/:pid/correspondence/imports', async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT i.id, i.file_name, i.format, i.count, i.created_at, i.created_by, u.name AS created_by_name,
+            (SELECT COUNT(*) FROM correspondence x WHERE x.import_id = i.id) AS remaining
+     FROM correspondence_imports i LEFT JOIN users u ON u.id = i.created_by
+     WHERE i.project_id = ? ORDER BY i.created_at DESC LIMIT 10`,
+  )
+    .bind(c.req.param('pid'))
+    .all();
+  return c.json(results);
+});
+
+pm.delete('/projects/:pid/correspondence/imports/:id', async (c) => {
+  const pid = c.req.param('pid');
+  const id = c.req.param('id');
+  const imp = await c.env.DB.prepare('SELECT created_by FROM correspondence_imports WHERE id = ? AND project_id = ?').bind(id, pid).first<{ created_by: string }>();
+  if (!imp) fail(404, 'not_found');
+  const u = c.get('user');
+  if (u.role !== 'admin' && imp!.created_by !== u.id) fail(403, 'forbidden', 'Only the person who imported, or an admin, can undo an import.');
+  const ids = 'SELECT id FROM correspondence WHERE import_id = ?';
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE decisions SET correspondence_id = NULL WHERE correspondence_id IN (${ids})`).bind(id),
+    c.env.DB.prepare(`UPDATE correspondence SET reply_to = NULL WHERE reply_to IN (${ids}) AND (import_id IS NULL OR import_id <> ?)`).bind(id, id),
+    c.env.DB.prepare(`DELETE FROM correspondence_threads WHERE root_id IN (${ids})`).bind(id),
+    c.env.DB.prepare('DELETE FROM correspondence WHERE import_id = ?').bind(id),
+    c.env.DB.prepare('DELETE FROM correspondence_imports WHERE id = ?').bind(id),
   ]);
   return c.json({ ok: true });
 });

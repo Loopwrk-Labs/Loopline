@@ -12,6 +12,8 @@
   "dependencies": {
     "exceljs": "^4.4.0",
     "hono": "^4.13.12",
+    "jszip": "3.10.2",
+    "pdfjs-dist": "6.4.299",
     "postal-mime": "^4.0.2",
     "preact": "^10.29.8"
   },

@@ -783,3 +783,42 @@ tr.msg-row.sc-lw .dot { background: #101014; box-shadow: 0 0 0 1px var(--hair-st
   .tl-meta-ed { grid-template-columns: 1fr; }
   .tl-f .tl-actions { margin-left: 0; }
 }
+
+/* ---------- Prepiska import ---------- */
+.mail-imp { height: 36px; margin-left: auto; }
+.mail-imp + .mail-add { margin-left: 0; }
+.mail-imp svg { width: 14px; height: 14px; }
+.imp-err { margin-bottom: 14px; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--bad-soft); color: var(--bad); font-size: .86rem; }
+.imp-pick { display: grid; gap: 12px; }
+.imp-drop { position: relative; display: grid; justify-items: center; gap: 6px; padding: 30px 16px; text-align: center; cursor: pointer;
+  border: 1.5px dashed var(--hair-strong); border-radius: 10px; background: var(--glass); }
+.imp-drop:hover, .imp-drop.on { border-color: var(--ink); background: var(--glass-strong); }
+.imp-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.imp-drop svg { width: 22px; height: 22px; color: var(--dim); }
+.imp-drop b { font: 600 .95rem/1.3 var(--body); }
+.imp-drop span { font: .74rem/1.5 var(--mono); color: var(--faint); max-width: 60ch; }
+.imp-or { font: 500 .64rem/1 var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--faint); text-align: center; }
+#imp-paste { min-height: 120px; }
+.imp-row-end { display: flex; justify-content: flex-end; }
+.imp-hist { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--hair); }
+.imp-hist-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; font-size: .82rem; color: var(--dim); }
+.imp-hist-row b { color: var(--ink); font-weight: 600; }
+.linkbtn.danger { color: var(--bad); }
+.imp-prev { display: grid; gap: 14px; }
+.imp-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.imp-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; }
+.imp-senders { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 12px; border-radius: 8px; background: var(--glass); }
+.imp-senders .label { width: 100%; }
+.imp-sender { display: inline-flex; align-items: center; gap: 8px; }
+.imp-sender .nm { font: 600 .84rem/1.2 var(--body); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-list { display: grid; gap: 8px; max-height: 46vh; overflow: auto; padding-right: 4px; }
+.imp-msg { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--hair); background: var(--surface); }
+.imp-msg.lw { border-left: 3px solid var(--ink); }
+.imp-msg.off { opacity: .45; }
+.imp-msg > input { margin-top: 9px; accent-color: var(--ink); }
+.imp-msg-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.imp-msg-h .input { width: auto; flex: 1 1 180px; padding-top: 5px; padding-bottom: 5px; font-size: .82rem; }
+.imp-msg-h .dt { flex: 0 0 200px; font: .74rem var(--mono); }
+.imp-msg-h .dt.guess { border-style: dashed; color: var(--warn); }
+.imp-body { margin-top: 6px; min-height: 52px; height: 58px; font-size: .84rem; resize: vertical; }
+@media (max-width: 760px) { .imp-grid { grid-template-columns: 1fr; } .imp-msg-h .dt { flex-basis: 100%; } .mail-imp { margin-left: 0; } }

@@ -4,13 +4,14 @@ import { fmtDate, fmtNum, fmtStamp, useT } from '../i18n';
 import { go, useApp } from '../state';
 import { Icon, Modal } from '../components/ui';
 import { autoSubject } from '../subject';
+import { MailImport } from '../components/MailImport';
 import { RichEditor, cleanHtml, highlightHtml, textToHtml } from '../components/RichEditor';
 import { isLeaf } from '../hours';
 import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
 
 type Mail = {
-  id: string; source: 'email' | 'manual'; direction: 'in' | 'out'; from_addr: string | null; to_addr: string | null; cc_addr: string | null;
-  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null; reply_to: string | null; body_html: string | null; category: string | null; subtopic: string | null; tags: string;
+  id: string; source: 'email' | 'manual' | 'import'; direction: 'in' | 'out'; from_addr: string | null; to_addr: string | null; cc_addr: string | null;
+  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null; reply_to: string | null; body_html: string | null; category: string | null; subtopic: string | null; tags: string; import_id: string | null;
 };
 type Decision = {
   id: string; title: string; decision: string; decided_by: string | null; decided_on: string | null; source: string | null; item_id: string | null;
@@ -318,6 +319,7 @@ function Correspondence() {
   const [picking, setPicking] = useState<string | null>(null);
   const [add, setAdd] = useState<Record<string, string> | null>(null);
   const [confirmDel, setConfirmDel] = useState<Mail | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [msgEdit, setMsgEdit] = useState<{ id: string; category: string; subtopic: string; tags: string } | null>(null);
   const [q, setQ] = useState('');
   const [firm, setFirm] = useState<string | null>(null);
@@ -660,7 +662,7 @@ function Correspondence() {
               </time>
               {canChange(m) && (
                 <span class="tl-acts">
-                  {m.source === 'manual' && (
+                  {m.source !== 'email' && (
                     <button type="button" class="tl-act" title={t('edit')} aria-label={t('edit')} onClick={() => editOf(m)}>
                       <Icon name="pencil" />
                     </button>
@@ -749,7 +751,9 @@ function Correspondence() {
           {atts.length > 0 && <div class="tl-atts">📎 {atts.map((x) => x.name).join(', ')}</div>}
 
           <footer class="tl-f">
-            <span class="src">{m.source === 'email' ? t('pm_src_email') : `${t('pm_src_manual')}${m.created_by_name ? ' · ' + m.created_by_name : ''}`}</span>
+            <span class="src">
+              {m.source === 'email' ? t('pm_src_email') : `${m.import_id ? t('pm_src_import') : t('pm_src_manual')}${m.created_by_name ? ' · ' + m.created_by_name : ''}`}
+            </span>
             {m.item_key && linking !== m.id && (
               <a class="item-chip" href={`#/p/${app.project!.key}/i/${m.item_key}`}>
                 {m.item_key}
@@ -833,6 +837,10 @@ function Correspondence() {
           <Icon name="search" />
           <input placeholder={t('pm_search_ph')} value={q} onInput={(e) => setQ(e.currentTarget.value)} aria-label={t('pm_search_ph')} />
         </label>
+        <button class="btn mail-imp" onClick={() => setImportOpen(true)}>
+          <Icon name="up" />
+          {t('pm_import')}
+        </button>
         <button class="btn solid mail-add" onClick={() => setAdd(blank())}>
           <Icon name="plus" />
           {t('pm_add_mail')}
@@ -1082,7 +1090,7 @@ function Correspondence() {
                             const a = parseAddr(m.from_addr);
                             const par = m.reply_to ? byId.get(m.reply_to) : undefined;
                             const early = !!par && m.sent_at < par.sent_at;
-                            const editable = canChange(m) && m.source === 'manual';
+                            const editable = canChange(m) && m.source !== 'email';
                             return (
                               <tr class={'msg-row sc-' + colorOf(senderKey(m.from_addr))}>
                                 <td class="pick" />
@@ -1205,6 +1213,24 @@ function Correspondence() {
           </div>
         ))}
       </div>
+
+      {importOpen && (
+        <MailImport
+          pid={pid}
+          threads={allThreads.map((x) => ({ id: x.first.id, title: x.first.subject || autoSubject(x.first.body) || '—', lastId: x.last.id }))}
+          categories={categories}
+          defaultSide={(from) => {
+            const me = (app.me.name ?? '').trim().toLowerCase();
+            const nm = parseAddr(from).name.trim().toLowerCase();
+            return isInternal(senderKey(from)) || (!!me && !!nm && (nm === me || me.split(' ')[0] === nm.split(' ')[0])) ? 'lw' : 'client';
+          }}
+          onClose={() => setImportOpen(false)}
+          onDone={() => {
+            load();
+            loadMetas();
+          }}
+        />
+      )}
 
       {metaEdit && (
         <Modal
