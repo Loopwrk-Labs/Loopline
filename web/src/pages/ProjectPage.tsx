@@ -5,7 +5,7 @@ import { go, useApp } from '../state';
 import { Icon, Modal } from '../components/ui';
 import { autoSubject } from '../subject';
 import { MailImport } from '../components/MailImport';
-import { Zapis, ZapisHome, queueStatement, type RecordTab } from './Zapis';
+import { Zapis, RecordCards, RecordHeader, queueStatement, poruka, type RecordTab } from './Zapis';
 import { RichEditor, cleanHtml, highlightHtml, textToHtml } from '../components/RichEditor';
 import { isLeaf } from '../hours';
 import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
@@ -50,7 +50,7 @@ function ItemPick({ value, onChange, types }: { value: string | null; onChange: 
 }
 
 // ---------------- overview ----------------
-function Overview() {
+function Overview({ records }: { records: RecordTab[] }) {
   const app = useApp();
   const { t, lang } = useT();
   const p = app.project!;
@@ -85,10 +85,64 @@ function Overview() {
     }
   };
 
+  const kpis = (
+    <div class="kpis ov-kpis">
+      <div class={'kpi' + (p.rag === 'red' ? ' alert' : p.rag === 'amber' ? ' warn' : '')}>
+        <small>{t('pm_rag')}</small>
+        <b class="kpi-rag">
+          <span class={'rag ' + p.rag}>
+            <i />
+            {t(`rag_${p.rag}` as never)}
+          </span>
+        </b>
+        <p>
+          {fmtDate(p.start_date)} → {fmtDate(p.end_date)}
+        </p>
+      </div>
+      <div class={'kpi' + (burn !== null && burn >= 80 ? ' warn' : '')}>
+        <small>{t('pm_budget_burn')}</small>
+        <b>
+          {burn !== null ? burn : '—'}
+          <sub>%</sub>
+        </b>
+        <p>
+          {fmtNum(actual, lang)} / {budget ? fmtNum(budget, lang) : '—'}h
+        </p>
+      </div>
+      <div class="kpi">
+        <small>{t('kpi_hours')}</small>
+        <b>
+          {fmtNum(actual, lang)}
+          <sub>/ {fmtNum(scope, lang)} h</sub>
+        </b>
+        <p>
+          {fmtNum(billable, lang)}h {t('billable_short')}
+        </p>
+      </div>
+      <div class="kpi">
+        <small>{t('children')}</small>
+        <b>
+          {done}
+          <sub>/ {open + done}</sub>
+        </b>
+        <p>{t('items_done')}</p>
+      </div>
+    </div>
+  );
+
   return (
-    <div class="dash" style={{ marginTop: 0 }}>
+    <div class="home">
+      {kpis}
+      <RecordCards records={records} />
+      <details class="ov-details">
+        <summary>
+          <span class="mf-l">{t('pm_details')}</span>
+          <span class="faint">
+            {[p.client, p.client_contact, budget ? `${fmtNum(budget, lang)}h` : ''].filter(Boolean).join(' · ') || '—'}
+          </span>
+        </summary>
+    <div class="dash">
       <div class="panel">
-        <h5>{t('pm_details')}</h5>
         <div class="form">
           <div class="two">
             <label class="field">
@@ -153,50 +207,7 @@ function Overview() {
         </div>
       </div>
       <div>
-        <div class="kpis">
-          <div class={'kpi' + (p.rag === 'red' ? ' alert' : p.rag === 'amber' ? ' warn' : '')}>
-            <small>{t('pm_rag')}</small>
-            <b style={{ fontSize: '1.1rem', paddingTop: '6px' }}>
-              <span class={'rag ' + p.rag}>
-                <i />
-                {t(`rag_${p.rag}` as never)}
-              </span>
-            </b>
-            <p>
-              {fmtDate(p.start_date)} → {fmtDate(p.end_date)}
-            </p>
-          </div>
-          <div class={'kpi' + (burn !== null && burn >= 80 ? ' warn' : '')}>
-            <small>{t('pm_budget_burn')}</small>
-            <b>
-              {burn !== null ? burn : '—'}
-              <sub>%</sub>
-            </b>
-            <p>
-              {fmtNum(actual, lang)} / {budget ? fmtNum(budget, lang) : '—'}h
-            </p>
-            {burn !== null && burn >= 80 && <span class="d dn">{t('pm_burn_warn')}</span>}
-          </div>
-          <div class="kpi">
-            <small>{t('kpi_hours')}</small>
-            <b>
-              {fmtNum(actual, lang)}
-              <sub>/ {fmtNum(scope, lang)} h</sub>
-            </b>
-            <p>
-              {fmtNum(billable, lang)}h {t('billable_short')}
-            </p>
-          </div>
-          <div class="kpi">
-            <small>{t('children')}</small>
-            <b>
-              {done}
-              <sub>/ {open + done}</sub>
-            </b>
-            <p>{t('items_done')}</p>
-          </div>
-        </div>
-        <div class="panel" style={{ marginTop: '12px' }}>
+        <div class="panel">
           <h5>{t('pm_inbound')}</h5>
           {domain ? (
             <>
@@ -216,6 +227,8 @@ function Overview() {
           )}
         </div>
       </div>
+    </div>
+      </details>
     </div>
   );
 }
@@ -299,7 +312,7 @@ const parseTags = (s: string | null | undefined): string[] => {
   }
 };
 
-function Correspondence() {
+function Correspondence({ record }: { record: RecordTab | null }) {
   const app = useApp();
   const { t, lang } = useT();
   const run = useRun();
@@ -804,7 +817,7 @@ function Correspondence() {
                     source_msg_id: m.id,
                     status: 'open',
                   });
-                  go(`p/${app.project!.key}/project/zapis`);
+                  go(`p/${app.project!.key}/project/overview`);
                 }}
               >
                 → {t('pm_to_zapis')}
@@ -844,6 +857,7 @@ function Correspondence() {
   return (
     <>
       {/* Row 1: view · search · add.  Row 2: senders · filters · clear. */}
+      {record && <RecordHeader record={record} meta={`Loopthreads · ${rows.length} ${poruka(rows.length)}`} />}
       <div class="mail-bar">
         {rows.length > 0 && (
           <div class="seg" role="group" aria-label={t('pm_view')}>
@@ -1750,14 +1764,16 @@ export function ProjectPage({ tab }: { tab: string }) {
     addEventListener('ll:records', load);
     return () => removeEventListener('ll:records', load);
   }, [project!.id]);
+  // Home first, then every record (correspondence is the project's one 'thread' record, tab 'mail'), then the registers.
+  const thread = records.find((r) => r.kind === 'thread') ?? null;
   const tabs: [string, string][] = [
     ['overview', t('pm_overview')],
-    ['mail', t('pm_mail')],
+    ['mail', thread?.title || t('pm_mail')],
+    ...records.filter((r) => r.kind !== 'thread').map((r): [string, string] => [`rec-${r.id}`, r.title || r.file_name || t('pm_zapis')]),
     ['approvals', t('pm_approvals')],
     ['decisions', t('pm_decisions')],
-    ...records.map((r): [string, string] => [`rec-${r.id}`, r.title || r.file_name || t('pm_zapis')]),
-    ['zapis', `+ ${t('pm_zapis')}`],
   ];
+  const isRec = (k: string) => k === 'mail' || k.startsWith('rec-');
   const cur = tabs.some(([k]) => k === tab) || tab.startsWith('rec-') ? tab : 'overview';
   return (
     <>
@@ -1775,19 +1791,18 @@ export function ProjectPage({ tab }: { tab: string }) {
         {tabs.map(([k, label]) => (
           <a
             href={`#/p/${project!.key}/project/${k}`}
-            class={(cur === k ? 'on' : '') + (k.startsWith('rec-') ? ' rec-tab' : k === 'zapis' ? ' rec-add' : '')}
-            title={k.startsWith('rec-') ? label : undefined}
+            class={(cur === k ? 'on' : '') + (isRec(k) ? ' rec-tab' : '') + (k === 'mail' ? ' rec-thread' : '') + (k === 'approvals' ? ' tab-gap' : '')}
+            title={isRec(k) ? label : undefined}
             onClick={(e) => { e.preventDefault(); go(`p/${project!.key}/project/${k}`); }}
           >
             {label}
           </a>
         ))}
       </nav>
-      {cur === 'overview' && <Overview />}
-      {cur === 'mail' && <Correspondence />}
+      {cur === 'overview' && <Overview records={records} />}
+      {cur === 'mail' && <Correspondence record={thread} />}
       {cur === 'approvals' && <Approvals />}
       {cur === 'decisions' && <Decisions />}
-      {cur === 'zapis' && <ZapisHome />}
       {cur.startsWith('rec-') && <Zapis key={cur} docId={cur.slice(4)} />}
     </>
   );

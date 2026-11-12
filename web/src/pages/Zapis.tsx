@@ -21,7 +21,7 @@ type Statement = {
 };
 type Link = { id: string; from_id: string; to_id: string; kind: LinkKind };
 type Doc = { id: string; file_name: string | null; title: string | null; content_sha256: string | null; count: number; created_at: number; created_by: string | null; created_by_name: string | null };
-export type RecordTab = { id: string; title: string | null; file_name: string | null; count: number };
+export type RecordTab = { id: string; kind: 'statements' | 'thread'; title: string | null; file_name: string | null; count: number; created_at: number; last_at: number | null };
 
 const KIND: Record<Kind, string> = { requirement: 'Zahtev', promise: 'Obećanje', claim: 'Tvrdnja', decision: 'Odluka', question: 'Pitanje' };
 const ROLE: Record<Role, string> = { client: 'Klijent', agency: 'Agencija', partner: 'Partner', us: 'Mi' };
@@ -60,6 +60,7 @@ const initials = (s: string) =>
     .map((w) => w[0])
     .join('')
     .toUpperCase() || '?';
+export const poruka = (n: number) => (n % 10 >= 2 && n % 10 <= 4 && ![12, 13, 14].includes(n % 100) ? 'poruke' : 'poruka');
 const izjava = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'izjava' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'izjave' : 'izjava');
 
 function useRun() {
@@ -497,7 +498,7 @@ export function Zapis({ docId }: { docId: string }) {
                   if (await run(() => api.del(`/projects/${pid}/statement-docs/${docId}`))) {
                     setDelRecord(false);
                     recordsChanged();
-                    go(`p/${app.project!.key}/project/zapis`);
+                    go(`p/${app.project!.key}/project/overview`);
                   }
                 }}
               >
@@ -961,96 +962,139 @@ function DocImport({ pid, parties, onClose, onDone }: { pid: string; parties: Pa
   );
 }
 
-// ---------------------------------------------------------------- "+ Zapis": list of records, import, new empty record
+// ---------------------------------------------------------------- record header (title + rename), used by Loopthreads
 
-export function ZapisHome() {
+export function RecordHeader({ record, meta }: { record: RecordTab; meta: string }) {
+  const app = useApp();
+  const run = useRun();
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const title = record.title || record.file_name || 'Zapis';
+  return (
+    <div class="rec-h">
+      {renaming !== null ? (
+        <form
+          class="rec-rename"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (await run(() => api.patch(`/projects/${app.project!.id}/statement-docs/${record.id}`, { title: renaming }))) {
+              setRenaming(null);
+              recordsChanged();
+            }
+          }}
+        >
+          <input class="input" id="rec-title" value={renaming} onInput={(e) => setRenaming(e.currentTarget.value)} autoFocus />
+          <button class="btn sm solid" type="submit">Sačuvaj</button>
+          <button class="btn sm" type="button" onClick={() => setRenaming(null)}>Otkaži</button>
+        </form>
+      ) : (
+        <h3 class="rec-title">
+          {title}
+          <button type="button" class="tl-act" title="Preimenuj" aria-label="Preimenuj" onClick={() => setRenaming(title)}>
+            <Icon name="pencil" />
+          </button>
+        </h3>
+      )}
+      <span class="rec-meta">{meta}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- home: chain of parties + one card per record (correspondence included)
+
+export function RecordCards({ records }: { records: RecordTab[] }) {
   const app = useApp();
   const { lang } = useT();
-  const run = useRun();
   const pid = app.project!.id;
-  const [docs, setDocs] = useState<Doc[]>([]);
+  const key = app.project!.key;
   const [parties, setParties] = useState<Party[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [partiesOpen, setPartiesOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const pending = !!pendingStatement;
-  const load = () =>
-    Promise.all([
-      api.get<Party[]>(`/projects/${pid}/parties`).then(setParties),
-      api.get<{ docs: Doc[]; statements: Statement[] }>(`/projects/${pid}/statements`).then((r) =>
-        setDocs(r.docs.map((d) => ({ ...d, count: r.statements.filter((x) => x.doc_id === d.id).length }))),
-      ),
-    ]).catch(() => {});
+  const loadParties = () => api.get<Party[]>(`/projects/${pid}/parties`).then(setParties).catch(() => {});
   useEffect(() => {
-    load();
+    loadParties();
   }, [pid]);
-  const open = (id: string) => go(recPath(app.project!.key, id));
+  const open = (r: RecordTab) => go(r.kind === 'thread' ? `p/${key}/project/mail` : recPath(key, r.id));
   const create = async () => {
     const title = name.trim();
     if (!title) return;
     try {
       const r = await api.post<{ id: string }>(`/projects/${pid}/statement-docs/empty`, { title });
       recordsChanged();
-      open(r.id);
+      go(recPath(key, r.id));
     } catch (e) {
       app.toast(e instanceof ApiError ? e.message : 'Zapis nije napravljen.', 'err');
     }
   };
+  const docs = records.filter((r) => r.kind !== 'thread');
   return (
-    <>
-      {pending && <div class="warn-box rec-pending">Izaberi zapis u koji ide izjava iz poruke, ili napravi novi.</div>}
-      <div class="chain-bar">
-        <span class="mf-l">Lanac</span>
-        {parties.length ? (
-          parties.map((p, i) => (
-            <>
-              {i > 0 && <span class="chain-arr">→</span>}
-              <span class={`chain-p sc-${ROLE_COLOR[p.role]}`} title={p.people}>
-                <i />
-                {p.name}
-                <small>{ROLE[p.role]}</small>
-              </span>
-            </>
-          ))
-        ) : (
-          <span class="faint">Strane u projektu nisu postavljene.</span>
-        )}
-        <button type="button" class="linkbtn chain-edit" onClick={() => setPartiesOpen(true)}>
-          {parties.length ? 'Uredi lanac' : 'Postavi lanac'}
-        </button>
+    <section class="home-recs">
+      <div class="home-h">
+        <span class="mf-l">Zapisi</span>
+        <span class="chain-inline">
+          {parties.length ? (
+            parties.map((p, i) => (
+              <>
+                {i > 0 && <span class="chain-arr">→</span>}
+                <span class={`chain-p sc-${ROLE_COLOR[p.role]}`} title={`${ROLE[p.role]}${p.people ? ' · ' + p.people : ''}`}>
+                  <i />
+                  {p.name}
+                </span>
+              </>
+            ))
+          ) : (
+            <span class="faint">Lanac strana nije postavljen.</span>
+          )}
+          <button type="button" class="tl-act" title={parties.length ? 'Uredi lanac' : 'Postavi lanac'} aria-label="Uredi lanac" onClick={() => setPartiesOpen(true)}>
+            <Icon name="pencil" />
+          </button>
+        </span>
       </div>
+      {pending && <div class="warn-box rec-pending">Izaberi zapis u koji ide izjava iz poruke, ili napravi novi.</div>}
 
       <div class="rec-grid">
-        {docs.map((d) => (
-          <button type="button" class="rec-card" onClick={() => open(d.id)}>
-            <span class="eyebrow-s">{d.file_name ? 'Dokument' : 'Zapis'}</span>
-            <b>{d.title || d.file_name}</b>
-            <span class="meta">
-              {d.count} {izjava(d.count)} · {fmtStamp(d.created_at, lang)}
-            </span>
-            {d.file_name && <span class="faint rec-file">{d.file_name}</span>}
-          </button>
-        ))}
-        <div class="rec-card new">
-          <span class="eyebrow-s">Novi zapis</span>
-          <button type="button" class="btn solid" onClick={() => setImportOpen(true)}>
-            <Icon name="up" />
-            Uvezi dokument
-          </button>
-          <span class="meta">brief, ugovor, zapisnik: svaki dobija svoj tab</span>
-          <form
-            class="rec-new"
-            onSubmit={(e) => {
-              e.preventDefault();
-              create();
-            }}
-          >
-            <input class="input" id="rec-new-name" placeholder="ili prazan zapis, npr. Sastanci" value={name} onInput={(e) => setName(e.currentTarget.value)} />
-            <button class="btn" type="submit" disabled={!name.trim()}>
-              Napravi
+        {records
+          .filter((r) => !(pending && r.kind === 'thread'))
+          .map((r) => (
+            <button type="button" class={'rec-card' + (r.kind === 'thread' ? ' thread' : '')} onClick={() => open(r)}>
+              <span class="eyebrow-s">{r.kind === 'thread' ? 'Loopthreads' : r.file_name ? 'Dokument' : 'Zapis'}</span>
+              <b>{r.title || r.file_name}</b>
+              <span class="meta">
+                {r.count} {r.kind === 'thread' ? poruka(r.count) : izjava(r.count)}
+                {r.last_at ? ` · poslednje ${fmtStamp(r.last_at, lang)}` : r.created_at ? ` · ${fmtStamp(r.created_at, lang)}` : ''}
+              </span>
+              {r.file_name && <span class="faint rec-file">{r.file_name}</span>}
             </button>
-          </form>
-        </div>
+          ))}
+        {adding || pending || !docs.length ? (
+          <div class="rec-card new">
+            <span class="eyebrow-s">Novi zapis</span>
+            <button type="button" class="btn solid" onClick={() => setImportOpen(true)}>
+              <Icon name="up" />
+              Uvezi dokument
+            </button>
+            <span class="meta">brief, ugovor, zapisnik: svaki dobija svoj tab</span>
+            <form
+              class="rec-new"
+              onSubmit={(e) => {
+                e.preventDefault();
+                create();
+              }}
+            >
+              <input class="input" id="rec-new-name" placeholder="ili prazan zapis, npr. Sastanci" value={name} onInput={(e) => setName(e.currentTarget.value)} />
+              <button class="btn" type="submit" disabled={!name.trim()}>
+                Napravi
+              </button>
+            </form>
+          </div>
+        ) : (
+          <button type="button" class="rec-card add" onClick={() => setAdding(true)}>
+            <span class="rec-plus">+</span>
+            <span class="meta">Novi zapis</span>
+          </button>
+        )}
       </div>
 
       {importOpen && (
@@ -1060,7 +1104,7 @@ export function ZapisHome() {
           onClose={() => setImportOpen(false)}
           onDone={(id) => {
             recordsChanged();
-            open(id);
+            go(recPath(key, id));
           }}
         />
       )}
@@ -1071,10 +1115,10 @@ export function ZapisHome() {
           onClose={() => setPartiesOpen(false)}
           onSaved={() => {
             setPartiesOpen(false);
-            load();
+            loadParties();
           }}
         />
       )}
-    </>
+    </section>
   );
 }

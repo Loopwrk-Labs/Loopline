@@ -940,3 +940,30 @@ button.rec-card:hover { border-color: var(--ink); }
 .rec-new { display: flex; gap: 6px; margin-top: 6px; }
 .rec-new .input { flex: 1; min-width: 0; }
 .eyebrow-s { font: 500 .6rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+
+/* ---------- project home: KPIs, records (correspondence included), details folded away ---------- */
+.home { display: grid; gap: 18px; }
+.ov-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ov-kpis .kpi { padding: 10px 14px; }
+.ov-kpis .kpi b { font-size: 1.35rem; }
+.ov-kpis .kpi b.kpi-rag { font-size: 1rem; padding-top: 5px; }
+@media (max-width: 720px) { .ov-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.home-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 10px; }
+.chain-inline { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chain-inline .chain-p { padding: 2px 9px; font-size: .72rem; }
+.rec-card { transition: border-color .12s, transform .12s; }
+.rec-card:not(.new):hover { border-color: var(--ink); }
+.rec-card.thread { background: var(--ink); color: var(--void, #101014); border-color: var(--ink); }
+.rec-card.thread .eyebrow-s, .rec-card.thread .meta { color: inherit; opacity: .7; }
+.rec-card.thread .eyebrow-s::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #FF0800; margin-right: 6px; vertical-align: 1px; }
+.rec-card.add { place-items: center; place-content: center; min-height: 110px; border-style: dashed; background: transparent; color: var(--faint); }
+.rec-card.add:hover { color: var(--ink); }
+.rec-plus { font: 300 1.8rem/1 var(--display); }
+.ov-details { border: 1px solid var(--hair); border-radius: 8px; background: var(--glass); }
+.ov-details > summary { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 10px 14px; cursor: pointer; list-style: none; font-size: .78rem; }
+.ov-details > summary::-webkit-details-marker { display: none; }
+.ov-details > summary::after { content: '▾'; margin-left: auto; color: var(--faint); }
+.ov-details[open] > summary::after { content: '▴'; }
+.ov-details > .dash { margin: 0; padding: 0 12px 12px; }
+.tabs a.tab-gap { margin-left: auto; }
+.home-h .mf-l, .ov-details > summary .mf-l { width: auto; white-space: nowrap; }

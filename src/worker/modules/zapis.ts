@@ -23,7 +23,8 @@ const num = (v: unknown) => (v === null || v === undefined || v === '' || !Numbe
 
 async function inProject(c: Context<AppEnv>, table: string, id: string | null, pid: string) {
   if (!id) return null;
-  const r = await c.env.DB.prepare(`SELECT id FROM ${table} WHERE id = ? AND project_id = ?`).bind(id, pid).first();
+  const extra = table === 'statement_docs' ? ` AND kind = 'statements'` : '';
+  const r = await c.env.DB.prepare(`SELECT id FROM ${table} WHERE id = ? AND project_id = ?${extra}`).bind(id, pid).first();
   return r ? id : null;
 }
 
@@ -77,7 +78,7 @@ zapis.get('/projects/:pid/statements', async (c) => {
        WHERE s.project_id = ? ORDER BY s.said_at, s.created_at`,
     ).bind(pid),
     c.env.DB.prepare('SELECT id, from_id, to_id, kind FROM statement_links WHERE project_id = ?').bind(pid),
-    c.env.DB.prepare('SELECT d.*, u.name AS created_by_name FROM statement_docs d LEFT JOIN users u ON u.id = d.created_by WHERE d.project_id = ? ORDER BY d.created_at DESC').bind(pid),
+    c.env.DB.prepare(`SELECT d.*, u.name AS created_by_name FROM statement_docs d LEFT JOIN users u ON u.id = d.created_by WHERE d.project_id = ? AND d.kind = 'statements' ORDER BY d.created_at DESC`).bind(pid),
   ]);
   return c.json({ statements: s.results, links: l.results, docs: d.results });
 });
@@ -191,11 +192,22 @@ zapis.delete('/statement-links/:id', async (c) => {
 // ---------- records ("zapisi")
 
 zapis.get('/projects/:pid/statement-docs', async (c) => {
+  const pid = c.req.param('pid');
+  // Every project has exactly one 'thread' record (its correspondence); create it on first use.
+  const has = await c.env.DB.prepare(`SELECT 1 FROM statement_docs WHERE project_id = ? AND kind = 'thread'`).bind(pid).first();
+  if (!has) {
+    await getProject(c.env.DB, pid);
+    await c.env.DB.prepare(`INSERT INTO statement_docs (id, project_id, title, count, created_at, kind) VALUES (?, ?, 'Prepiska', 0, 0, 'thread')`).bind(uid(), pid).run();
+  }
   const { results } = await c.env.DB.prepare(
-    `SELECT d.id, d.title, d.file_name, d.created_at, (SELECT COUNT(*) FROM statements s WHERE s.doc_id = d.id) AS count
-     FROM statement_docs d WHERE d.project_id = ? ORDER BY d.created_at`,
+    `SELECT d.id, d.kind, d.title, d.file_name, d.created_at,
+            CASE WHEN d.kind = 'thread' THEN (SELECT COUNT(*) FROM correspondence m WHERE m.project_id = d.project_id)
+                 ELSE (SELECT COUNT(*) FROM statements s WHERE s.doc_id = d.id) END AS count,
+            CASE WHEN d.kind = 'thread' THEN (SELECT MAX(m.sent_at) FROM correspondence m WHERE m.project_id = d.project_id)
+                 ELSE (SELECT MAX(s.said_at) FROM statements s WHERE s.doc_id = d.id) END AS last_at
+     FROM statement_docs d WHERE d.project_id = ? ORDER BY d.kind = 'thread' DESC, d.created_at`,
   )
-    .bind(c.req.param('pid'))
+    .bind(pid)
     .all();
   return c.json(results);
 });
@@ -265,8 +277,9 @@ zapis.post('/projects/:pid/statement-docs', async (c) => {
 zapis.delete('/projects/:pid/statement-docs/:id', async (c) => {
   const pid = c.req.param('pid');
   const id = c.req.param('id');
-  const d = await c.env.DB.prepare('SELECT created_by FROM statement_docs WHERE id = ? AND project_id = ?').bind(id, pid).first<{ created_by: string }>();
+  const d = await c.env.DB.prepare('SELECT created_by, kind FROM statement_docs WHERE id = ? AND project_id = ?').bind(id, pid).first<{ created_by: string; kind: string }>();
   if (!d) fail(404, 'not_found');
+  if (d!.kind === 'thread') fail(409, 'locked', 'Prepiska se ne briše kao zapis; poruke se brišu pojedinačno ili poništavanjem uvoza.');
   const u = c.get('user');
   if (u.role !== 'admin' && d!.created_by !== u.id) fail(403, 'forbidden', 'Uvoz poništava onaj ko ga je uradio ili admin.');
   const ids = 'SELECT id FROM statements WHERE doc_id = ?';
