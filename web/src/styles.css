@@ -987,3 +987,13 @@ button.rec-card:hover { border-color: var(--ink); }
 .est-tbl td:not(:first-child), .est-tbl th:not(:first-child) { text-align: right; white-space: nowrap; }
 .est-tbl tfoot td { font: 700 .95rem var(--display); border-top: 2px solid var(--ink); border-bottom: 0; }
 .est-note { font-size: .74rem; margin: 6px 0 0; }
+/* per-message status in Loopthreads */
+.th-status.msg-st { font-size: .66rem; padding: 0 0 0 8px; background: var(--surface); }
+.th-status.msg-st select { font: inherit; border: 0; background: transparent; color: inherit; padding: 3px 4px; cursor: pointer; }
+.th-status.msg-st.st-none { color: var(--faint); border-style: dashed; }
+.th-status.msg-st.st-none i { background: transparent; border: 1.5px dashed var(--faint); }
+.tl-item.sc-lw > .tl-box .th-status.msg-st { background: transparent; color: inherit; border-color: rgba(255,255,255,.3); }
+.th-progress { display: inline-flex; align-items: center; gap: 6px; font: .66rem var(--mono); color: var(--dim); }
+.th-bar { display: block; width: 48px; height: 4px; border-radius: 2px; background: var(--hair-strong); overflow: hidden; }
+.th-bar i { display: block; height: 100%; background: #22c55e; }
+.th-progress small { font-size: inherit; }

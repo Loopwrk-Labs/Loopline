@@ -76,10 +76,12 @@ async function editableMail(c: Context<AppEnv>, id: string) {
   return m!;
 }
 
+const THREAD_STATUS = ['open', 'waiting_us', 'waiting_client', 'resolved'];
+
 pm.patch('/correspondence/:id', async (c) => {
   const id = c.req.param('id');
   const b = await body(c);
-  const metaKeys = ['category', 'subtopic', 'tags'];
+  const metaKeys = ['category', 'subtopic', 'tags', 'status'];
   if (Object.keys(b).length && Object.keys(b).every((k) => metaKeys.includes(k))) {
     // Categorisation: anyone on the team may set it (like linking to an item).
     const sets: string[] = [];
@@ -87,6 +89,7 @@ pm.patch('/correspondence/:id', async (c) => {
     if ('category' in b) sets.push('category = ?'), vals.push(str(b.category, 80));
     if ('subtopic' in b) sets.push('subtopic = ?'), vals.push(str(b.subtopic, 80));
     if ('tags' in b) sets.push('tags = ?'), vals.push(JSON.stringify(cleanTags(b.tags)));
+    if ('status' in b) sets.push('status = ?'), vals.push(THREAD_STATUS.includes(b.status as string) ? (b.status as string) : null);
     const r = await c.env.DB.prepare(`UPDATE correspondence SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, id).run();
     if (!r.meta.changes) fail(404, 'not_found');
     return c.json({ ok: true });
@@ -222,7 +225,6 @@ pm.delete('/projects/:pid/correspondence/imports/:id', async (c) => {
 });
 
 // Thread metadata: category › subtopic, status, priority, tags. Anyone on the team may set them.
-const THREAD_STATUS = ['open', 'waiting_us', 'waiting_client', 'resolved'];
 const THREAD_PRIORITY = ['low', 'high'];
 
 pm.get('/projects/:pid/threads', async (c) => {

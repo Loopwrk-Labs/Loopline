@@ -12,7 +12,7 @@ import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
 
 type Mail = {
   id: string; source: 'email' | 'manual' | 'import'; direction: 'in' | 'out'; from_addr: string | null; to_addr: string | null; cc_addr: string | null;
-  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null; reply_to: string | null; body_html: string | null; category: string | null; subtopic: string | null; tags: string; import_id: string | null;
+  subject: string | null; body: string; attachments: string; sent_at: number; item_id: string | null; item_key: string | null; created_by_name: string | null; created_by: string | null; edited_at: number | null; reply_to: string | null; body_html: string | null; category: string | null; subtopic: string | null; tags: string; import_id: string | null; status: ThreadStatus | null;
 };
 type Decision = {
   id: string; title: string; decision: string; decided_by: string | null; decided_on: string | null; source: string | null; item_id: string | null;
@@ -483,12 +483,19 @@ function Correspondence({ record }: { record: RecordTab | null }) {
     const first = roots[0] ?? ms[0];
     const meta = roots.map((r) => metas[r.id]).find(Boolean) ?? null;
     const last = ms[ms.length - 1];
-    const autoStatus: ThreadStatus = isInternal(senderKey(last.from_addr)) || last.direction === 'out' ? 'waiting_client' : 'waiting_us';
+    // Messages with their own status decide the thread: anything waiting on us first, then on the client,
+    // then anything still open; resolved only when every tracked message is resolved.
+    const tracked = ms.filter((m) => m.status);
+    const fromMsgs: ThreadStatus | null = !tracked.length
+      ? null
+      : (['waiting_us', 'waiting_client', 'open'] as ThreadStatus[]).find((st) => tracked.some((m) => m.status === st)) ?? 'resolved';
+    const autoStatus: ThreadStatus = fromMsgs ?? (isInternal(senderKey(last.from_addr)) || last.direction === 'out' ? 'waiting_client' : 'waiting_us');
+    const progress = tracked.length ? { done: tracked.filter((m) => m.status === 'resolved').length, total: tracked.length } : null;
     const status = (meta?.status as ThreadStatus | null) ?? autoStatus;
     // Category/subtopic/tags live on messages; the thread shows its first message's, tags are the union of all.
     const rootTags = parseTags(first.tags);
     const tags = [...new Set(ms.flatMap((m) => parseTags(m.tags)))];
-    return { ms, roots, first, meta, metaRoot: meta?.root_id ?? first.id, status, autoStatus, auto: !meta?.status, category: first.category, subtopic: first.subtopic, rootTags, tags, last };
+    return { ms, roots, first, meta, metaRoot: meta?.root_id ?? first.id, status, autoStatus, auto: !meta?.status, progress, category: first.category, subtopic: first.subtopic, rootTags, tags, last };
   });
   type ThreadInfo = (typeof allThreads)[number];
   const categories = [...new Set(rows.map((m) => m.category).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b));
@@ -562,6 +569,10 @@ function Correspondence({ record }: { record: RecordTab | null }) {
     return true;
   };
   /** Category / subtopic / tags of one message (bubble editor, grid, bulk). */
+  const saveMsgStatus = async (m: Mail, status: ThreadStatus | null) => {
+    setRows((rs) => rs.map((r) => (r.id === m.id ? { ...r, status } : r)));
+    return run(() => api.patch(`/correspondence/${m.id}`, { status }));
+  };
   const saveMsgMeta = async (m: Mail, patch: { category?: string | null; subtopic?: string | null; tags?: string[] }) => {
     setRows((rs) => rs.map((r) => (r.id === m.id ? { ...r, ...patch, tags: patch.tags ? JSON.stringify(patch.tags) : r.tags } : r)));
     return run(() => api.patch(`/correspondence/${m.id}`, patch));
@@ -669,6 +680,15 @@ function Correspondence({ record }: { record: RecordTab | null }) {
               {a.email && a.email !== name.toLowerCase() && <span class="tl-mail">{a.email}</span>}
             </div>
             <div class="tl-side">
+              <label class={`th-status st-pill msg-st st-${m.status ?? 'none'}`} title={t('pm_msg_status_hint')}>
+                <i />
+                <select value={m.status ?? ''} aria-label={t('pm_status')} onChange={(e) => saveMsgStatus(m, (e.currentTarget.value || null) as ThreadStatus | null)}>
+                  <option value="">{t('pm_status')}</option>
+                  {THREAD_STATUSES.map((st) => (
+                    <option value={st}>{statusLabel(st)}</option>
+                  ))}
+                </select>
+              </label>
               <span class={'dir ' + m.direction}>{m.direction === 'out' ? '↗ ' + t('pm_out') : '↙ ' + t('pm_in')}</span>
               <time title={m.edited_at ? `${t('pm_edited')} ${fmtStamp(m.edited_at, lang)}` : undefined}>
                 {fmtStamp(m.sent_at, lang)}
@@ -1207,6 +1227,16 @@ function Correspondence({ record }: { record: RecordTab | null }) {
                       {statusLabel(x.status)}
                       {x.auto && <small> · auto</small>}
                     </button>
+                    {x.progress && (
+                      <span class="th-progress" title={t('pm_msg_progress')}>
+                        <b class="th-bar">
+                          <i style={{ width: `${Math.round((x.progress.done / x.progress.total) * 100)}%` }} />
+                        </b>
+                        <small>
+                          {x.progress.done}/{x.progress.total} {t('pm_st_resolved').toLowerCase()}
+                        </small>
+                      </span>
+                    )}
                     {x.meta?.priority === 'high' && <span class="th-prio hi">↑ {t('pm_prio_high')}</span>}
                     {x.meta?.priority === 'low' && <span class="th-prio lo">↓ {t('pm_prio_low')}</span>}
                     {x.tags.map((g) => (
