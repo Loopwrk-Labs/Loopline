@@ -11,6 +11,7 @@ import { views } from './modules/views';
 import { imports } from './modules/imports';
 import { metrics } from './modules/metrics';
 import { pm, publicPm, receiveEmail } from './modules/pm';
+import { zapis } from './modules/zapis';
 
 // Modular monolith: each module owns its routes; this file only wires them together.
 const app = new Hono<AppEnv>().basePath('/api');
@@ -38,6 +39,7 @@ app.route('/', views);
 app.route('/', imports);
 app.route('/', metrics);
 app.route('/', pm);
+app.route('/', zapis);
 
 app.notFound((c) => c.json({ error: 'not_found', message: 'Not found.' }, 404));
 

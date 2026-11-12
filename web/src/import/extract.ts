@@ -59,7 +59,10 @@ async function docxToText(buf: ArrayBuffer): Promise<string> {
   const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
   const out: string[] = [];
   for (const p of Array.from(doc.getElementsByTagNameNS(W, 'p'))) {
-    let line = '';
+    // Mark structure for the statement importer: headings as "# ", list items as "• ".
+    const style = p.getElementsByTagNameNS(W, 'pStyle')[0]?.getAttributeNS(W, 'val') ?? p.getElementsByTagNameNS(W, 'pStyle')[0]?.getAttribute('w:val') ?? '';
+    const isList = p.getElementsByTagNameNS(W, 'numPr').length > 0 || /list/i.test(style);
+    let line = /^(heading|naslov|title)\s*\d*$/i.test(style.replace(/[^a-z0-9 ]/gi, '')) ? '# ' : isList ? '• ' : '';
     p.querySelectorAll('*').forEach((n) => {
       if (n.namespaceURI !== W) return;
       if (n.localName === 't') line += n.textContent ?? '';

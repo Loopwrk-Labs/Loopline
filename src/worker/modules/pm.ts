@@ -137,6 +137,7 @@ pm.delete('/correspondence/:id', async (c) => {
       : c.env.DB.prepare('DELETE FROM correspondence_threads WHERE root_id = ?').bind(id),
     c.env.DB.prepare('UPDATE decisions SET correspondence_id = NULL WHERE correspondence_id = ?').bind(id),
     c.env.DB.prepare('UPDATE correspondence SET reply_to = NULL WHERE reply_to = ?').bind(id),
+    c.env.DB.prepare('UPDATE statements SET source_msg_id = NULL WHERE source_msg_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM correspondence WHERE id = ?').bind(id),
   ]);
   return c.json({ ok: true });
@@ -211,6 +212,7 @@ pm.delete('/projects/:pid/correspondence/imports/:id', async (c) => {
   const ids = 'SELECT id FROM correspondence WHERE import_id = ?';
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE decisions SET correspondence_id = NULL WHERE correspondence_id IN (${ids})`).bind(id),
+    c.env.DB.prepare(`UPDATE statements SET source_msg_id = NULL WHERE source_msg_id IN (${ids})`).bind(id),
     c.env.DB.prepare(`UPDATE correspondence SET reply_to = NULL WHERE reply_to IN (${ids}) AND (import_id IS NULL OR import_id <> ?)`).bind(id, id),
     c.env.DB.prepare(`DELETE FROM correspondence_threads WHERE root_id IN (${ids})`).bind(id),
     c.env.DB.prepare('DELETE FROM correspondence WHERE import_id = ?').bind(id),
@@ -490,6 +492,10 @@ pm.get('/backup', async (c) => {
     correspondence: 'SELECT * FROM correspondence',
     correspondence_threads: 'SELECT * FROM correspondence_threads',
     correspondence_senders: 'SELECT * FROM correspondence_senders',
+    project_parties: 'SELECT * FROM project_parties',
+    statements: 'SELECT * FROM statements',
+    statement_links: 'SELECT * FROM statement_links',
+    statement_docs: 'SELECT * FROM statement_docs',
     approvals: 'SELECT id, project_id, kind, key, item_id, title, body, impact_hours, impact_cost, impact_days, currency, status, sent_at, content_sha256, client_name, client_email, decided_at, decided_ip, decision_note, created_at FROM approvals',
     decisions: 'SELECT * FROM decisions',
   };

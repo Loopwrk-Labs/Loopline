@@ -5,6 +5,7 @@ import { go, useApp } from '../state';
 import { Icon, Modal } from '../components/ui';
 import { autoSubject } from '../subject';
 import { MailImport } from '../components/MailImport';
+import { Zapis, queueStatement } from './Zapis';
 import { RichEditor, cleanHtml, highlightHtml, textToHtml } from '../components/RichEditor';
 import { isLeaf } from '../hours';
 import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
@@ -787,6 +788,27 @@ function Correspondence() {
                   {m.item_key ? t('pm_change_link') : t('pm_link_item')}
                 </button>
               )}
+              <button
+                type="button"
+                class="fbtn"
+                title={t('pm_to_zapis_hint')}
+                onClick={() => {
+                  queueStatement({
+                    kind: 'claim',
+                    quote: m.body,
+                    said_at: m.sent_at,
+                    said_by: m.from_addr,
+                    topic: m.category,
+                    source_type: 'message',
+                    source_label: m.subject,
+                    source_msg_id: m.id,
+                    status: 'open',
+                  });
+                  go(`p/${app.project!.key}/project/zapis`);
+                }}
+              >
+                → {t('pm_to_zapis')}
+              </button>
               <button type="button" class="fbtn strong reply-btn" onClick={() => replyTo(m)}>
                 ↩ {t('pm_reply')}
               </button>
@@ -1725,6 +1747,7 @@ export function ProjectPage({ tab }: { tab: string }) {
     ['mail', t('pm_mail')],
     ['approvals', t('pm_approvals')],
     ['decisions', t('pm_decisions')],
+    ['zapis', t('pm_zapis')],
   ];
   const cur = tabs.some(([k]) => k === tab) ? tab : 'overview';
   return (
@@ -1750,6 +1773,7 @@ export function ProjectPage({ tab }: { tab: string }) {
       {cur === 'mail' && <Correspondence />}
       {cur === 'approvals' && <Approvals />}
       {cur === 'decisions' && <Decisions />}
+      {cur === 'zapis' && <Zapis />}
     </>
   );
 }
