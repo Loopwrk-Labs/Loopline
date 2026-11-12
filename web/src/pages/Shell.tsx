@@ -122,6 +122,13 @@ export function Shell({ route }: { route: string[] }) {
           </label>
         )}
         <nav class="nav">
+          <div class="grp">{t('nav_ops')}</div>
+          {nav('project', 'brief', t('pm_project'))}
+          {nav('metrics', 'metrics', t('metrics'))}
+          <a href="#/settings" class={route[0] === 'settings' ? 'on' : ''}>
+            <Icon name="set" />
+            {t('settings')}
+          </a>
           {project && <div class="grp">{t('nav_work')}</div>}
           {nav('dashboard', 'dash', t('dashboard'))}
           {nav('board', 'board', t('board'))}
@@ -130,13 +137,6 @@ export function Shell({ route }: { route: string[] }) {
           {nav('epics', 'epic', t('epics'))}
           {nav('sprints', 'sprint', t('sprints'))}
           {nav('logbook', 'log', t('logbook'))}
-          <div class="grp">{t('nav_ops')}</div>
-          {nav('metrics', 'metrics', t('metrics'))}
-          {nav('project', 'brief', t('pm_project'))}
-          <a href="#/settings" class={route[0] === 'settings' ? 'on' : ''}>
-            <Icon name="set" />
-            {t('settings')}
-          </a>
         </nav>
         <div class="me">
           <Avatar user={app.me} lg />

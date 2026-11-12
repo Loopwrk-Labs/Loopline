@@ -967,3 +967,23 @@ button.rec-card:hover { border-color: var(--ink); }
 .ov-details > .dash { margin: 0; padding: 0 12px 12px; }
 .tabs a.tab-gap { margin-left: auto; }
 .home-h .mf-l, .ov-details > summary .mf-l { width: auto; white-space: nowrap; }
+/* statements imported with Word formatting: lists and emphasis as in the document */
+.st-rich { white-space: normal; }
+.st-rich p { margin: 0 0 4px; }
+.st-rich ul, .st-rich ol { margin: 4px 0 0; padding-left: 1.3em; }
+.st-rich li { margin: 1px 0; }
+.st-rich li::marker { color: var(--faint); }
+.doc-q.st-rich { display: block; }
+/* per-statement status pill (same states as threads) */
+.th-status.st-pill { padding: 0 2px 0 9px; gap: 4px; cursor: pointer; }
+.th-status.st-pill .st-status { border: 0; background: transparent; padding: 5px 4px; }
+.st.closed .st-q { opacity: .6; }
+/* the old task-status dot rule (.st i) must not touch italics inside statement text */
+.st .st-q i, .st .doc-q i { display: inline; width: auto; height: auto; border: 0; border-radius: 0; background: none; transform: none; }
+.est-total { margin-top: 8px; }
+.est-tbl { width: 100%; max-width: 760px; border-collapse: collapse; font-size: .86rem; }
+.est-tbl th { text-align: left; font: 500 .62rem var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); padding: 6px 10px; border-bottom: 1px solid var(--hair-strong); }
+.est-tbl td { padding: 8px 10px; border-bottom: 1px solid var(--hair); font-variant-numeric: tabular-nums; }
+.est-tbl td:not(:first-child), .est-tbl th:not(:first-child) { text-align: right; white-space: nowrap; }
+.est-tbl tfoot td { font: 700 .95rem var(--display); border-top: 2px solid var(--ink); border-bottom: 0; }
+.est-note { font-size: .74rem; margin: 6px 0 0; }

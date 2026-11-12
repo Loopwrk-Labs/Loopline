@@ -1,3 +1,4 @@
+import { sanitizeRichText } from '../lib/richtext';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { AppEnv } from '../lib/types';
@@ -15,7 +16,7 @@ import { getProject } from './projects';
 export const zapis = new Hono<AppEnv>();
 
 const KINDS = ['requirement', 'promise', 'claim', 'decision', 'question'];
-const STATUS = ['open', 'done', 'dropped'];
+const STATUS = ['open', 'waiting_us', 'waiting_client', 'resolved'];
 const SOURCES = ['document', 'message', 'meeting', 'call', 'other'];
 const LINKS = ['changes', 'contradicts', 'confirms'];
 const ROLES = ['client', 'agency', 'partner', 'us'];
@@ -235,7 +236,7 @@ zapis.patch('/projects/:pid/statement-docs/:id', async (c) => {
   return c.json({ ok: true });
 });
 
-// ---------- document import (brief, contract, minutes): one locked statement per item
+// ---------- document import (brief, contract, minutes): one locked statement per paragraph or list
 
 zapis.post('/projects/:pid/statement-docs', async (c) => {
   const pid = c.req.param('pid');
@@ -256,10 +257,10 @@ zapis.post('/projects/:pid/statement-docs', async (c) => {
     const kind = KINDS.includes(it.kind as string) ? (it.kind as string) : 'requirement';
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO statements (id, project_id, topic, kind, party_id, via_party_id, said_by, said_at, quote, status, due_at, source_type, source_label, doc_id, content_sha256, locked, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, 'document', ?, ?, ?, 1, ?, ?)`,
+        `INSERT INTO statements (id, project_id, topic, kind, party_id, via_party_id, said_by, said_at, quote, quote_html, status, due_at, source_type, source_label, doc_id, content_sha256, locked, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, 'document', ?, ?, ?, 1, ?, ?)`,
       ).bind(
-        uid(), pid, str(it.topic, 120), kind, party, via, str(b.said_by, 120), saidAt, quote, num(it.due_at),
+        uid(), pid, str(it.topic, 120), kind, party, via, str(b.said_by, 120), saidAt, quote, await sanitizeRichText(it.html, 60_000), num(it.due_at),
         [title, str(it.section, 120)].filter(Boolean).join(' · '), docId, await sha256(quote), user, now(),
       ),
     );

@@ -4,18 +4,19 @@ import { fmtDate, fmtStamp, useT } from '../i18n';
 import { go, useApp } from '../state';
 import { Icon, Modal } from '../components/ui';
 import { extractFile, ImportError } from '../import/extract';
+import { cleanHtml } from '../components/RichEditor';
 import { parseDocItems, type DocItem, type Kind } from '../import/statements';
 
 // ---------------------------------------------------------------- types & labels
 
 type Role = 'client' | 'agency' | 'partner' | 'us';
 type Party = { id: string; name: string; role: Role; position: number; people: string };
-type Status = 'open' | 'done' | 'dropped';
+type Status = 'open' | 'waiting_us' | 'waiting_client' | 'resolved';
 type Source = 'document' | 'message' | 'meeting' | 'call' | 'other';
 type LinkKind = 'changes' | 'contradicts' | 'confirms';
 type Statement = {
   id: string; topic: string | null; kind: Kind; party_id: string | null; via_party_id: string | null; said_by: string | null; said_at: number;
-  quote: string; note: string | null; status: Status; due_at: number | null; source_type: Source; source_label: string | null;
+  quote: string; quote_html: string | null; note: string | null; status: Status; due_at: number | null; source_type: Source; source_label: string | null;
   source_msg_id: string | null; source_msg_subject: string | null; doc_id: string | null; content_sha256: string | null; locked: number;
   created_by: string | null; created_by_name: string | null;
 };
@@ -26,7 +27,7 @@ export type RecordTab = { id: string; kind: 'statements' | 'thread'; title: stri
 const KIND: Record<Kind, string> = { requirement: 'Zahtev', promise: 'Obećanje', claim: 'Tvrdnja', decision: 'Odluka', question: 'Pitanje' };
 const ROLE: Record<Role, string> = { client: 'Klijent', agency: 'Agencija', partner: 'Partner', us: 'Mi' };
 const ROLE_COLOR: Record<Role, string> = { client: 'amber', agency: 'violet', partner: 'blue', us: 'lw' };
-const STATUS: Record<Status, string> = { open: 'Otvoreno', done: 'Ispunjeno', dropped: 'Odustalo se' };
+const STATUS: Record<Status, string> = { open: 'Otvoreno', waiting_us: 'Čeka nas', waiting_client: 'Čeka klijenta', resolved: 'Rešeno' };
 const SOURCE: Record<Source, string> = { document: 'Dokument', message: 'Poruka', meeting: 'Sastanak', call: 'Poziv', other: 'Drugo' };
 const LINK_OUT: Record<LinkKind, string> = { changes: 'menja', contradicts: 'protivreči', confirms: 'potvrđuje' };
 const LINK_IN: Record<LinkKind, string> = { changes: 'Promenjeno', contradicts: 'Sporno', confirms: 'Potvrđeno' };
@@ -97,6 +98,7 @@ export function Zapis({ docId }: { docId: string }) {
   const [fParty, setFParty] = useState('');
   const [fTopic, setFTopic] = useState('');
   const [fState, setFState] = useState('');
+  const [fStatus, setFStatus] = useState('');
 
   const load = () =>
     Promise.all([
@@ -143,7 +145,7 @@ export function Zapis({ docId }: { docId: string }) {
   const inLinks = (id: string) => links.filter((l) => l.to_id === id);
   const outLinks = (id: string) => links.filter((l) => l.from_id === id);
   const now = Date.now();
-  const overdue = (s: Statement) => s.kind === 'promise' && s.status === 'open' && !!s.due_at && s.due_at < now;
+  const overdue = (s: Statement) => s.kind === 'promise' && s.status !== 'resolved' && !!s.due_at && s.due_at < now;
   const states = (s: Statement) => {
     const inc = inLinks(s.id);
     return {
@@ -151,7 +153,7 @@ export function Zapis({ docId }: { docId: string }) {
       changed: inc.some((l) => l.kind === 'changes'),
       confirmed: inc.some((l) => l.kind === 'confirms'),
       overdue: overdue(s),
-      openQuestion: s.kind === 'question' && s.status === 'open',
+      openQuestion: s.kind === 'question' && s.status !== 'resolved',
     };
   };
   const topics = [...new Set(recRows.map((s) => s.topic || 'Bez teme'))];
@@ -168,15 +170,17 @@ export function Zapis({ docId }: { docId: string }) {
     if (fKind && s.kind !== fKind) return false;
     if (fParty && s.party_id !== fParty) return false;
     if (fTopic && (s.topic || 'Bez teme') !== fTopic) return false;
+    if (fStatus && s.status !== fStatus) return false;
     if (fState && !states(s)[fState as keyof ReturnType<typeof states>]) return false;
     return true;
   });
   // Topics in order of first appearance (a document's structure stays intact); statements by date inside.
   const sections = topics.map((tp) => ({ topic: tp, list: visible.filter((s) => (s.topic || 'Bez teme') === tp) })).filter((x) => x.list.length);
-  const anyFilter = !!(ql || fKind || fParty || fTopic || fState);
+  const anyFilter = !!(ql || fKind || fParty || fTopic || fState || fStatus);
   const clear = () => {
     setQ('');
     setFKind('');
+    setFStatus('');
     setFParty('');
     setFTopic('');
     setFState('');
@@ -210,7 +214,7 @@ export function Zapis({ docId }: { docId: string }) {
     const st = states(s);
     const canDel = app.me.role === 'admin' || (!s.locked && s.created_by === app.me.id);
     return (
-      <article id={`st-${s.id}`} class={`st sc-${color(s.party_id)}${st.disputed ? ' disputed' : ''}${st.changed ? ' changed' : ''}${s.status !== 'open' ? ' closed' : ''}`}>
+      <article id={`st-${s.id}`} class={`st sc-${color(s.party_id)}${st.disputed ? ' disputed' : ''}${st.changed ? ' changed' : ''}${s.status === 'resolved' ? ' closed' : ''}`}>
         <div class="st-av" title={p ? `${p.name} · ${ROLE[p.role]}` : 'Nepoznata strana'}>
           {p ? initials(p.name) : '?'}
           {p?.role === 'us' && <i class="lw-dot" />}
@@ -239,7 +243,11 @@ export function Zapis({ docId }: { docId: string }) {
             </span>
           </header>
 
-          <blockquote class="st-q">{s.quote}</blockquote>
+          {s.quote_html ? (
+            <blockquote class="st-q st-rich" dangerouslySetInnerHTML={{ __html: cleanHtml(s.quote_html) }} />
+          ) : (
+            <blockquote class="st-q">{s.quote}</blockquote>
+          )}
           {s.note && <p class="st-note">{s.note}</p>}
 
           {(st.disputed || st.changed || st.confirmed || outLinks(s.id).length > 0) && (
@@ -294,11 +302,14 @@ export function Zapis({ docId }: { docId: string }) {
               </span>
             )}
             <span class="st-actions">
-              <select class="st-status" value={s.status} aria-label="Stanje" onChange={(e) => setStatus(s, e.currentTarget.value as Status)}>
+              <label class={`th-status st-pill st-${s.status}`} title="Status ove stavke">
+                <i />
+              <select class="st-status" value={s.status} aria-label="Status" onChange={(e) => setStatus(s, e.currentTarget.value as Status)}>
                 {(Object.keys(STATUS) as Status[]).map((k) => (
                   <option value={k}>{STATUS[k]}</option>
                 ))}
               </select>
+              </label>
               <button type="button" class="fbtn strong" onClick={() => setLinkFrom(s)}>
                 ⇄ Poveži
               </button>
@@ -403,6 +414,16 @@ export function Zapis({ docId }: { docId: string }) {
             </button>
           ))}
           <span class="st-alert-sep" />
+          <label class={'pill-sel' + (fStatus ? ' on' : '')}>
+            <select value={fStatus} onChange={(e) => setFStatus(e.currentTarget.value)} aria-label="Status">
+              <option value="">Status</option>
+              {(Object.keys(STATUS) as Status[]).map((k) => (
+                <option value={k}>
+                  {STATUS[k]} · {recRows.filter((s) => s.status === k).length}
+                </option>
+              ))}
+            </select>
+          </label>
           <label class={'pill-sel' + (fKind ? ' on' : '')}>
             <select value={fKind} onChange={(e) => setFKind(e.currentTarget.value)} aria-label="Tip">
               <option value="">Tip</option>
@@ -445,6 +466,7 @@ export function Zapis({ docId }: { docId: string }) {
             <div class="st-sec-list">{list.map(card)}</div>
           </section>
         ))}
+        <EstimateTotal rows={recRows} />
       </div>
 
       {edit && (
@@ -826,7 +848,7 @@ function DocImport({ pid, parties, onClose, onDone }: { pid: string; parties: Pa
     try {
       const x = await extractFile(f);
       if (x.kind !== 'text') throw new ImportError('Za Zapis uvezi dokument (Word, PDF, Pages, tekst). Mejlove uvozi u Loopthreads.');
-      const r = parseDocItems(x.text);
+      const r = parseDocItems(x.text, x.kind === "text" ? x.blocks : undefined);
       if (!r.items.length) throw new ImportError('U dokumentu nisam našao stavke.');
       setItems(r.items);
       setText(x.text);
@@ -851,7 +873,7 @@ function DocImport({ pid, parties, onClose, onDone }: { pid: string; parties: Pa
         said_by: saidBy || null,
         said_at: date,
         full_text: text,
-        items: items.filter((i) => i.include).map((i) => ({ topic: i.topic, section: i.section, quote: i.quote, kind: i.kind })),
+        items: items.filter((i) => i.include).map((i) => ({ topic: i.topic, section: i.section, quote: i.quote, html: i.html, kind: i.kind })),
       });
       app.toast(`Uvezeno ${r.count} ${izjava(r.count)}.`, 'ok');
       onClose();
@@ -949,7 +971,7 @@ function DocImport({ pid, parties, onClose, onDone }: { pid: string; parties: Pa
                           <option value={k}>{KIND[k]}</option>
                         ))}
                       </select>
-                      <span class="doc-q">{it.quote}</span>
+                      {it.html ? <span class="doc-q st-rich" dangerouslySetInnerHTML={{ __html: cleanHtml(it.html) }} /> : <span class="doc-q">{it.quote}</span>}
                     </div>
                   ),
                 )}
@@ -959,6 +981,82 @@ function DocImport({ pid, parties, onClose, onDone }: { pid: string; parties: Pa
         </div>
       )}
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- estimates: "Procena cene: 40000e-60000e" per phase → total
+
+/** "40000e-60000e", "15.000 – 25.000 €", "10k-20k", "30000e" → [min, max] in euros. */
+function moneyRange(line: string): [number, number] | null {
+  const num = (x: string, k?: string) => {
+    const v = Number(x.replace(/[.\s](?=\d{3}\b)/g, '').replace(',', '.'));
+    return k && /k/i.test(k) ? v * 1000 : v;
+  };
+  const m = line.match(/(\d[\d.,\s]*\d|\d)\s*(k)?\s*(?:e|€|eur\w*)?\s*(?:[-–—]|do)\s*(\d[\d.,\s]*\d|\d)\s*(k)?/i);
+  if (m) return [num(m[1], m[2] ?? m[4]), num(m[3], m[4])];
+  const one = line.match(/(\d[\d.,\s]*\d)\s*(k)?\s*(?:e|€|eur)/i);
+  return one ? [num(one[1], one[2]), num(one[1], one[2])] : null;
+}
+/** "3-5 meseci", "2 meseca", "6-8 nedelja" → months. */
+function monthRange(line: string): [number, number] | null {
+  const m = line.match(/(\d+(?:[.,]\d+)?)\s*(?:[-–—]\s*(\d+(?:[.,]\d+)?))?\s*(mesec\w*|month\w*|nedelj\w*|week\w*)/i);
+  if (!m) return null;
+  const f = /^(nedelj|week)/i.test(m[3]) ? 0.25 : 1;
+  return [Number(m[1].replace(',', '.')) * f, Number((m[2] ?? m[1]).replace(',', '.')) * f];
+}
+
+function EstimateTotal({ rows }: { rows: Statement[] }) {
+  const { lang } = useT();
+  const phases = new Map<string, { cost: [number, number] | null; time: [number, number] | null }>();
+  for (const s of rows) {
+    for (const line of s.quote.split('\n')) {
+      if (!/^\s*(procena|procenjen|okvirn|estimate)/i.test(line)) continue;
+      const key = s.topic || 'Bez teme';
+      const p = phases.get(key) ?? { cost: null, time: null };
+      const what = line.replace(/^\s*(procen\w*|okvirn\w*|estimate\w*)\s*/i, ''); // "Procena cene: …" → "cene: …"
+      if (/^(trajanj|vreme|rok|time|duration)/i.test(what)) p.time = monthRange(line) ?? p.time;
+      else if (/^(cen|cost|price|budž|budz|vrednost)/i.test(what)) p.cost = moneyRange(line) ?? p.cost;
+      phases.set(key, p);
+    }
+  }
+  const list = [...phases].filter(([, p]) => p.cost || p.time);
+  if (!list.length) return null;
+  const eur = (n: number) => `${Math.round(n).toLocaleString(lang === 'en' ? 'en-GB' : 'sr-Latn-RS')} €`;
+  const range = (r: [number, number] | null, f: (n: number) => string) => (!r ? '—' : r[0] === r[1] ? f(r[0]) : `${f(r[0])} – ${f(r[1])}`);
+  const mon = (n: number) => `${Math.round(n * 10) / 10}`;
+  const costs = list.filter(([, p]) => p.cost).map(([, p]) => p.cost!);
+  const times = list.filter(([, p]) => p.time).map(([, p]) => p.time!);
+  const sum = (rs: [number, number][]): [number, number] => [rs.reduce((a, r) => a + r[0], 0), rs.reduce((a, r) => a + r[1], 0)];
+  return (
+    <section class="st-sec est-total">
+      <h3 class="th-cat">Ukupna procena</h3>
+      <table class="est-tbl">
+        <thead>
+          <tr>
+            <th>Celina</th>
+            <th>Trajanje</th>
+            <th>Cena</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map(([k, p]) => (
+            <tr>
+              <td>{k}</td>
+              <td>{p.time ? `${range(p.time, mon)} mes.` : '—'}</td>
+              <td>{range(p.cost, eur)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>Ukupno</td>
+            <td>{times.length ? `${range(sum(times), mon)} mes.` : '—'}</td>
+            <td>{costs.length ? range(sum(costs), eur) : '—'}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <p class="faint est-note">Zbir procena iz dokumenta. Trajanje je zbir ako se celine rade jedna za drugom.</p>
+    </section>
   );
 }
 

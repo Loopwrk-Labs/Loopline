@@ -6,7 +6,9 @@
  */
 import { newKey, stripQuoted, type Draft } from './parse';
 
-export type Extracted = { kind: 'text'; text: string; name: string } | { kind: 'emails'; mails: Draft[]; name: string };
+/** One paragraph of a formatted document (Word): its plain text plus inline HTML (bold, italic, underline, red/yellow/green). */
+export type Block = { kind: 'p' | 'li' | 'h'; level: number; ordered: boolean; text: string; html: string; bold?: boolean };
+export type Extracted = { kind: 'text'; text: string; name: string; blocks?: Block[] } | { kind: 'emails'; mails: Draft[]; name: string };
 
 export class ImportError extends Error {}
 
@@ -51,27 +53,111 @@ async function zipOf(buf: ArrayBuffer) {
   return JSZip.loadAsync(buf);
 }
 
-async function docxToText(buf: ArrayBuffer): Promise<string> {
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/** Word colour → one of the three rich-text colours (red / yellow / green); greys, blues, black are dropped. */
+function textColor(hex: string): string | null {
+  const m = /^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return null;
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max - min < 0.35 || max < 0.45) return null; // not saturated enough: a design colour, not a highlight
+  const d = max - min;
+  const h = (max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60;
+  const hue = (h + 360) % 360;
+  if (hue < 25 || hue >= 330) return 'red';
+  if (hue < 70) return 'yellow';
+  if (hue < 170) return 'green';
+  return null;
+}
+
+async function docxToBlocks(buf: ArrayBuffer): Promise<{ text: string; blocks: Block[] }> {
   const zip = await zipOf(buf);
   const xml = await zip.file('word/document.xml')?.async('string');
   if (!xml) throw new ImportError('Word fajl nema čitljiv tekst.');
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
   const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const attr = (el: Element | undefined, name: string) => (el ? el.getAttributeNS(W, name) ?? el.getAttribute('w:' + name) : null);
+  const first = (el: Element, name: string) => el.getElementsByTagNameNS(W, name)[0] as Element | undefined;
+  const on = (rPr: Element | undefined, name: string) => {
+    const e = rPr && first(rPr, name);
+    if (!e) return false;
+    const v = attr(e, 'val');
+    return v === null || v === '' || !/^(0|false|none)$/i.test(v);
+  };
+  // Numbered vs bulleted lists: numbering.xml says the format of every list level.
+  const fmt = new Map<string, string>(); // `${numId}:${ilvl}` → numFmt
+  const numXml = await zip.file('word/numbering.xml')?.async('string');
+  if (numXml) {
+    const nd = new DOMParser().parseFromString(numXml, 'application/xml');
+    const abs = new Map<string, Map<string, string>>();
+    for (const a of Array.from(nd.getElementsByTagNameNS(W, 'abstractNum'))) {
+      const lv = new Map<string, string>();
+      for (const l of Array.from(a.getElementsByTagNameNS(W, 'lvl'))) lv.set(attr(l, 'ilvl') ?? '0', attr(first(l, 'numFmt'), 'val') ?? 'bullet');
+      abs.set(attr(a, 'abstractNumId') ?? '', lv);
+    }
+    for (const n of Array.from(nd.getElementsByTagNameNS(W, 'num'))) {
+      const lv = abs.get(attr(first(n, 'abstractNumId'), 'val') ?? '');
+      lv?.forEach((f, i) => fmt.set(`${attr(n, 'numId')}:${i}`, f));
+    }
+  }
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const blocks: Block[] = [];
   const out: string[] = [];
   for (const p of Array.from(doc.getElementsByTagNameNS(W, 'p'))) {
-    // Mark structure for the statement importer: headings as "# ", list items as "• ".
-    const style = p.getElementsByTagNameNS(W, 'pStyle')[0]?.getAttributeNS(W, 'val') ?? p.getElementsByTagNameNS(W, 'pStyle')[0]?.getAttribute('w:val') ?? '';
-    const isList = p.getElementsByTagNameNS(W, 'numPr').length > 0 || /list/i.test(style);
-    let line = /^(heading|naslov|title)\s*\d*$/i.test(style.replace(/[^a-z0-9 ]/gi, '')) ? '# ' : isList ? '• ' : '';
-    p.querySelectorAll('*').forEach((n) => {
-      if (n.namespaceURI !== W) return;
-      if (n.localName === 't') line += n.textContent ?? '';
-      else if (n.localName === 'tab') line += '\t';
-      else if (n.localName === 'br' || n.localName === 'cr') line += '\n';
-    });
-    out.push(line);
+    const style = attr(first(p, 'pStyle'), 'val') ?? '';
+    const numPr = first(p, 'numPr');
+    const isList = !!numPr || /list/i.test(style);
+    const hm = style.replace(/[^a-z0-9 ]/gi, '').match(/^(heading|naslov|title|subtitle)\s*(\d*)$/i);
+    const isHead = !!hm;
+    // Headings: level = 0 for Title, 1… for Heading 1…; list items: nesting level.
+    const level = hm ? (/^title$/i.test(hm[1]) ? 0 : /^subtitle$/i.test(hm[1]) ? 9 : Number(hm[2] || 1)) : numPr ? Number(attr(first(numPr, 'ilvl'), 'val') ?? 0) : 0;
+    const numId = numPr ? attr(first(numPr, 'numId'), 'val') : null;
+    const ordered = !!numId && !/^(bullet|none)$/.test(fmt.get(`${numId}:${level}`) ?? 'bullet');
+    let text = '';
+    let html = '';
+    let allBold = true;
+    // Runs, merged so "**A**" + "**B**" stays one <b>; hyperlinks keep their runs.
+    let cur = { b: false, i: false, u: false, c: null as string | null, t: '' };
+    const flush = () => {
+      if (!cur.t) return;
+      let h = esc(cur.t);
+      if (cur.c) h = `<span class="tc-${cur.c}">${h}</span>`;
+      if (cur.u) h = `<u>${h}</u>`;
+      if (cur.i) h = `<i>${h}</i>`;
+      if (cur.b) h = `<b>${h}</b>`;
+      html += h;
+      cur.t = '';
+    };
+    for (const r of Array.from(p.getElementsByTagNameNS(W, 'r'))) {
+      const rPr = first(r, 'rPr');
+      const st = { b: on(rPr, 'b'), i: on(rPr, 'i'), u: !!rPr && !!first(rPr, 'u') && attr(first(rPr, 'u'), 'val') !== 'none', c: rPr ? textColor(attr(first(rPr, 'color'), 'val') ?? '') : null };
+      let piece = '';
+      for (const n of Array.from(r.childNodes) as Element[]) {
+        if (n.namespaceURI !== W) continue;
+        if (n.localName === 't') piece += n.textContent ?? '';
+        else if (n.localName === 'tab') piece += '\t';
+        else if (n.localName === 'br' || n.localName === 'cr') piece += '\n';
+      }
+      if (!piece) continue;
+      text += piece;
+      if (!st.b && /\S/.test(piece)) allBold = false;
+      // Whitespace-only runs don't change formatting (avoids "<b>A</b> <b>B</b>").
+      if (/^\s+$/.test(piece)) {
+        cur.t += piece;
+        continue;
+      }
+      if (st.b !== cur.b || st.i !== cur.i || st.u !== cur.u || st.c !== cur.c) {
+        flush();
+        cur = { ...st, t: '' };
+      }
+      cur.t += piece;
+    }
+    flush();
+    html = html.replace(/\n/g, '<br>');
+    out.push((isHead ? '# ' : isList ? '• ' : '') + text);
+    blocks.push({ kind: isHead ? 'h' : isList ? 'li' : 'p', level, ordered, text, html, bold: !!text.trim() && allBold });
   }
-  return out.join('\n');
+  return { text: out.join('\n'), blocks };
 }
 
 async function odtToText(buf: ArrayBuffer): Promise<string> {
@@ -175,8 +261,10 @@ export async function extractFile(file: File): Promise<Extracted> {
       if (!parts.length) throw new ImportError('U mbox fajlu nema mejlova.');
       return { kind: 'emails', mails: await Promise.all(parts.map((p) => emlToDraft(p))), name };
     }
-    case 'docx':
-      return { kind: 'text', text: await docxToText(buf), name };
+    case 'docx': {
+      const r = await docxToBlocks(buf);
+      return { kind: 'text', text: r.text, blocks: r.blocks, name };
+    }
     case 'odt':
       return { kind: 'text', text: await odtToText(buf), name };
     case 'pdf':
