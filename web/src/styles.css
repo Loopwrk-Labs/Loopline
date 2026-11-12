@@ -915,3 +915,28 @@ span.st-link .x { border: 0; background: none; color: var(--faint); cursor: poin
   .st-actions { margin-left: 0; }
 }
 .st { align-items: start; }
+
+/* ---------- Zapis records as tabs ---------- */
+.tabs a.rec-tab { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.tabs a.rec-tab::before { content: ''; width: 6px; height: 6px; flex: none; background: currentColor; border-radius: 1.5px; opacity: .55; }
+.tabs a.rec-add { color: var(--faint); }
+.tabs a.rec-add:hover, .tabs a.rec-add.on { color: var(--ink); }
+.rec-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 4px 0 12px; }
+.rec-title { display: inline-flex; align-items: center; gap: 6px; font: 800 1.25rem/1.2 var(--display); letter-spacing: -.02em; }
+.rec-title .tl-act { opacity: .5; }
+.rec-title:hover .tl-act { opacity: 1; }
+.rec-meta { font: .7rem/1.4 var(--mono); color: var(--faint); }
+.rec-del { margin-left: auto; font: 500 .72rem/1 var(--mono); }
+.rec-rename { display: flex; gap: 6px; align-items: center; flex: 1; max-width: 560px; }
+.rec-rename .input { flex: 1; }
+.rec-pending { margin-bottom: 12px; border-left: 3px solid var(--ink); }
+.rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.rec-card { display: grid; gap: 6px; align-content: start; text-align: left; padding: 16px; border-radius: 12px; border: 1px solid var(--hair-strong); background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
+button.rec-card:hover { border-color: var(--ink); }
+.rec-card b { font: 700 1.02rem/1.25 var(--display); letter-spacing: -.01em; }
+.rec-card .rec-file { font: .68rem/1.3 var(--mono); overflow-wrap: anywhere; }
+.rec-card.new { cursor: default; border-style: dashed; background: var(--glass); }
+.rec-card.new .btn { justify-self: start; }
+.rec-new { display: flex; gap: 6px; margin-top: 6px; }
+.rec-new .input { flex: 1; min-width: 0; }
+.eyebrow-s { font: 500 .6rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }

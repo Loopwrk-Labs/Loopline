@@ -5,7 +5,7 @@ import { go, useApp } from '../state';
 import { Icon, Modal } from '../components/ui';
 import { autoSubject } from '../subject';
 import { MailImport } from '../components/MailImport';
-import { Zapis, queueStatement } from './Zapis';
+import { Zapis, ZapisHome, queueStatement, type RecordTab } from './Zapis';
 import { RichEditor, cleanHtml, highlightHtml, textToHtml } from '../components/RichEditor';
 import { isLeaf } from '../hours';
 import { ApprovalDoc, type Approval } from '../components/ApprovalDoc';
@@ -1742,14 +1742,23 @@ function Decisions() {
 export function ProjectPage({ tab }: { tab: string }) {
   const { project } = useApp();
   const { t } = useT();
+  // Every record ("zapis", usually one per source document) is its own tab, named after the document.
+  const [records, setRecords] = useState<RecordTab[]>([]);
+  useEffect(() => {
+    const load = () => api.get<RecordTab[]>(`/projects/${project!.id}/statement-docs`).then(setRecords).catch(() => {});
+    load();
+    addEventListener('ll:records', load);
+    return () => removeEventListener('ll:records', load);
+  }, [project!.id]);
   const tabs: [string, string][] = [
     ['overview', t('pm_overview')],
     ['mail', t('pm_mail')],
     ['approvals', t('pm_approvals')],
     ['decisions', t('pm_decisions')],
-    ['zapis', t('pm_zapis')],
+    ...records.map((r): [string, string] => [`rec-${r.id}`, r.title || r.file_name || t('pm_zapis')]),
+    ['zapis', `+ ${t('pm_zapis')}`],
   ];
-  const cur = tabs.some(([k]) => k === tab) ? tab : 'overview';
+  const cur = tabs.some(([k]) => k === tab) || tab.startsWith('rec-') ? tab : 'overview';
   return (
     <>
       <div class="tb" style={{ marginBottom: '6px' }}>
@@ -1764,7 +1773,12 @@ export function ProjectPage({ tab }: { tab: string }) {
       </div>
       <nav class="tabs">
         {tabs.map(([k, label]) => (
-          <a href={`#/p/${project!.key}/project/${k}`} class={cur === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); go(`p/${project!.key}/project/${k}`); }}>
+          <a
+            href={`#/p/${project!.key}/project/${k}`}
+            class={(cur === k ? 'on' : '') + (k.startsWith('rec-') ? ' rec-tab' : k === 'zapis' ? ' rec-add' : '')}
+            title={k.startsWith('rec-') ? label : undefined}
+            onClick={(e) => { e.preventDefault(); go(`p/${project!.key}/project/${k}`); }}
+          >
             {label}
           </a>
         ))}
@@ -1773,7 +1787,8 @@ export function ProjectPage({ tab }: { tab: string }) {
       {cur === 'mail' && <Correspondence />}
       {cur === 'approvals' && <Approvals />}
       {cur === 'decisions' && <Decisions />}
-      {cur === 'zapis' && <Zapis />}
+      {cur === 'zapis' && <ZapisHome />}
+      {cur.startsWith('rec-') && <Zapis key={cur} docId={cur.slice(4)} />}
     </>
   );
 }

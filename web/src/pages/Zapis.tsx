@@ -21,6 +21,7 @@ type Statement = {
 };
 type Link = { id: string; from_id: string; to_id: string; kind: LinkKind };
 type Doc = { id: string; file_name: string | null; title: string | null; content_sha256: string | null; count: number; created_at: number; created_by: string | null; created_by_name: string | null };
+export type RecordTab = { id: string; title: string | null; file_name: string | null; count: number };
 
 const KIND: Record<Kind, string> = { requirement: 'Zahtev', promise: 'Obećanje', claim: 'Tvrdnja', decision: 'Odluka', question: 'Pitanje' };
 const ROLE: Record<Role, string> = { client: 'Klijent', agency: 'Agencija', partner: 'Partner', us: 'Mi' };
@@ -35,6 +36,11 @@ export let pendingStatement: Partial<Statement> | null = null;
 export const queueStatement = (s: Partial<Statement>) => {
   pendingStatement = s;
 };
+/** A link may point into another record: remember which statement to show after switching tabs. */
+let pendingJump: string | null = null;
+/** Tells the project page to reload its record tabs (created, renamed, deleted). */
+export const recordsChanged = () => window.dispatchEvent(new CustomEvent('ll:records'));
+const recPath = (key: string, id: string) => `p/${key}/project/rec-${id}`;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const toLocal = (ms: number) => {
@@ -71,7 +77,7 @@ function useRun() {
 
 // ---------------------------------------------------------------- page
 
-export function Zapis() {
+export function Zapis({ docId }: { docId: string }) {
   const app = useApp();
   const { lang } = useT();
   const run = useRun();
@@ -84,7 +90,6 @@ export function Zapis() {
   const [edit, setEdit] = useState<Partial<Statement> | null>(null);
   const [linkFrom, setLinkFrom] = useState<Statement | null>(null);
   const [partiesOpen, setPartiesOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState<Statement | null>(null);
   const [q, setQ] = useState('');
   const [fKind, setFKind] = useState('');
@@ -106,10 +111,21 @@ export function Zapis() {
   useEffect(() => {
     load();
     if (pendingStatement) {
-      setEdit(pendingStatement);
+      setEdit({ ...pendingStatement, doc_id: docId });
       pendingStatement = null;
     }
-  }, [pid]);
+  }, [pid, docId]);
+  useEffect(() => {
+    if (!pendingJump || !rows.length) return;
+    const id = pendingJump;
+    pendingJump = null;
+    jump(id);
+  }, [rows]);
+  const doc = docs.find((d) => d.id === docId);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [delRecord, setDelRecord] = useState(false);
+  const all = rows;
+  const recTitle = (id: string | null) => docs.find((d) => d.id === id)?.title ?? '';
 
   const partyById = useMemo(() => new Map(parties.map((p) => [p.id, p])), [parties]);
   // A statement taken from a Loopthreads message: recognise the sender's party from names / e-mail domains.
@@ -121,7 +137,8 @@ export function Zapis() {
     );
     if (hit) setEdit({ ...edit, party_id: hit.id });
   }, [parties, edit?.said_by]);
-  const byId = useMemo(() => new Map(rows.map((s) => [s.id, s])), [rows]);
+  const byId = useMemo(() => new Map(all.map((s) => [s.id, s])), [all]);
+  const recRows = all.filter((s) => s.doc_id === docId);
   const inLinks = (id: string) => links.filter((l) => l.to_id === id);
   const outLinks = (id: string) => links.filter((l) => l.from_id === id);
   const now = Date.now();
@@ -136,16 +153,16 @@ export function Zapis() {
       openQuestion: s.kind === 'question' && s.status === 'open',
     };
   };
-  const topics = [...new Set(rows.map((s) => s.topic || 'Bez teme'))];
+  const topics = [...new Set(recRows.map((s) => s.topic || 'Bez teme'))];
   const counts = {
-    disputed: rows.filter((s) => states(s).disputed).length,
-    changed: rows.filter((s) => states(s).changed).length,
-    overdue: rows.filter((s) => states(s).overdue).length,
-    openQuestion: rows.filter((s) => states(s).openQuestion).length,
+    disputed: recRows.filter((s) => states(s).disputed).length,
+    changed: recRows.filter((s) => states(s).changed).length,
+    overdue: recRows.filter((s) => states(s).overdue).length,
+    openQuestion: recRows.filter((s) => states(s).openQuestion).length,
   };
 
   const ql = q.trim().toLowerCase();
-  const visible = rows.filter((s) => {
+  const visible = recRows.filter((s) => {
     if (ql && !`${s.quote} ${s.said_by ?? ''} ${s.note ?? ''} ${s.topic ?? ''} ${s.source_label ?? ''}`.toLowerCase().includes(ql)) return false;
     if (fKind && s.kind !== fKind) return false;
     if (fParty && s.party_id !== fParty) return false;
@@ -165,6 +182,12 @@ export function Zapis() {
   };
 
   const jump = (id: string) => {
+    const target = byId.get(id);
+    if (target && target.doc_id && target.doc_id !== docId) {
+      pendingJump = id;
+      go(recPath(app.project!.key, target.doc_id));
+      return;
+    }
     if (anyFilter) clear();
     setTimeout(() => {
       const el = document.getElementById(`st-${id}`);
@@ -225,7 +248,8 @@ export function Zapis() {
                 if (!o) return null;
                 return (
                   <button type="button" class={`st-link in-${l.kind}`} onClick={() => jump(o.id)}>
-                    <b>{LINK_IN[l.kind]}</b> · {partyById.get(o.party_id ?? '')?.name ?? '?'}, {fmtDate(toDay(o.said_at))}: „{o.quote.slice(0, 70)}
+                    <b>{LINK_IN[l.kind]}</b> · {partyById.get(o.party_id ?? '')?.name ?? '?'}, {fmtDate(toDay(o.said_at))}
+                    {o.doc_id !== docId ? ` · ${recTitle(o.doc_id) || 'drugi zapis'}` : ''}: „{o.quote.slice(0, 70)}
                     {o.quote.length > 70 ? '…' : ''}“
                   </button>
                 );
@@ -236,7 +260,8 @@ export function Zapis() {
                 return (
                   <span class={`st-link out-${l.kind}`}>
                     <button type="button" class="linkbtn" onClick={() => jump(o.id)}>
-                      ↪ {LINK_OUT[l.kind]}: {partyById.get(o.party_id ?? '')?.name ?? '?'}, {fmtDate(toDay(o.said_at))} „{o.quote.slice(0, 60)}
+                      ↪ {LINK_OUT[l.kind]}: {partyById.get(o.party_id ?? '')?.name ?? '?'}, {fmtDate(toDay(o.said_at))}
+                      {o.doc_id !== docId ? ` · ${recTitle(o.doc_id) || 'drugi zapis'}` : ''} „{o.quote.slice(0, 60)}
                       {o.quote.length > 60 ? '…' : ''}“
                     </button>
                     <button type="button" class="x" title="Ukloni vezu" aria-label="Ukloni vezu" onClick={() => run(() => api.del(`/statement-links/${l.id}`)).then(load)}>
@@ -285,6 +310,44 @@ export function Zapis() {
 
   return (
     <>
+      <div class="rec-h">
+        {renaming !== null ? (
+          <form
+            class="rec-rename"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (await run(() => api.patch(`/projects/${pid}/statement-docs/${docId}`, { title: renaming }))) {
+                setRenaming(null);
+                recordsChanged();
+                load();
+              }
+            }}
+          >
+            <input class="input" id="rec-title" value={renaming} onInput={(e) => setRenaming(e.currentTarget.value)} autoFocus />
+            <button class="btn sm solid" type="submit">Sačuvaj</button>
+            <button class="btn sm" type="button" onClick={() => setRenaming(null)}>Otkaži</button>
+          </form>
+        ) : (
+          <h3 class="rec-title">
+            {doc?.title || doc?.file_name || 'Zapis'}
+            <button type="button" class="tl-act" title="Preimenuj zapis" aria-label="Preimenuj zapis" onClick={() => setRenaming(doc?.title || doc?.file_name || '')}>
+              <Icon name="pencil" />
+            </button>
+          </h3>
+        )}
+        <span class="rec-meta">
+          {doc?.file_name ? `${doc.file_name} · ` : 'Zapis bez dokumenta · '}
+          {recRows.length} {izjava(recRows.length)}
+          {doc?.content_sha256 && <span title={`SHA-256 celog dokumenta: ${doc.content_sha256}`}> · otisak {doc.content_sha256.slice(0, 10)}…</span>}
+          {doc && ` · ${fmtStamp(doc.created_at, lang)}${doc.created_by_name ? ' · ' + doc.created_by_name : ''}`}
+        </span>
+        {doc && (app.me.role === 'admin' || doc.created_by === app.me.id) && (
+          <button type="button" class="linkbtn danger rec-del" onClick={() => setDelRecord(true)}>
+            Obriši zapis
+          </button>
+        )}
+      </div>
+
       {/* chain of parties */}
       <div class="chain-bar">
         <span class="mf-l">Lanac</span>
@@ -317,18 +380,14 @@ export function Zapis() {
           <Icon name="search" />
           <input placeholder="Pretraži izjave…" value={q} onInput={(e) => setQ(e.currentTarget.value)} aria-label="Pretraži izjave" />
         </label>
-        <button class="btn mail-imp" onClick={() => setImportOpen(true)}>
-          <Icon name="up" />
-          Uvezi dokument
-        </button>
-        <button class="btn solid" onClick={() => setEdit({ kind: 'claim', said_at: Date.now(), source_type: 'other', status: 'open' })}>
+        <button class="btn solid mail-add" onClick={() => setEdit({ kind: 'claim', said_at: Date.now(), source_type: 'other', status: 'open', doc_id: docId })}>
           <Icon name="plus" />
           Nova izjava
         </button>
       </div>
 
       {/* what needs attention: these are also the quick filters */}
-      {rows.length > 0 && (
+      {recRows.length > 0 && (
         <div class="st-alerts">
           {(
             [
@@ -367,13 +426,13 @@ export function Zapis() {
         </div>
       )}
 
-      {loaded && !rows.length && (
+      {loaded && !recRows.length && (
         <div class="empty st-empty">
-          <b>Zapis je prazan.</b>
-          <span>Uvezi brief ili ugovor (svaka stavka postaje izjava), dodaj izjavu ručno, ili u Loopthreads na poruci klikni „→ Zapis“.</span>
+          <b>U ovom zapisu još nema izjava.</b>
+          <span>Dodaj izjavu ručno, ili u Loopthreads na poruci klikni „→ Zapis“ i izaberi ovaj zapis.</span>
         </div>
       )}
-      {rows.length > 0 && !visible.length && <div class="empty">Nijedna izjava ne odgovara filteru.</div>}
+      {recRows.length > 0 && !visible.length && <div class="empty">Nijedna izjava ne odgovara filteru.</div>}
 
       <div class="st-list">
         {sections.map(({ topic, list }) => (
@@ -392,6 +451,7 @@ export function Zapis() {
           key={`${edit.id ?? 'new'}-${edit.party_id ?? ''}`}
           value={edit}
           parties={parties}
+          docs={docs}
           topics={topics.filter((x) => x !== 'Bez teme')}
           onClose={() => setEdit(null)}
           onSaved={() => {
@@ -404,6 +464,7 @@ export function Zapis() {
         <LinkForm
           from={linkFrom}
           rows={rows}
+          docs={docs}
           partyById={partyById}
           onClose={() => setLinkFrom(null)}
           onSaved={() => {
@@ -423,14 +484,32 @@ export function Zapis() {
           }}
         />
       )}
-      {importOpen && (
-        <DocImport
-          pid={pid}
-          parties={parties}
-          docs={docs}
-          onClose={() => setImportOpen(false)}
-          onDone={() => load()}
-        />
+      {delRecord && (
+        <Modal
+          title="Obriši zapis"
+          onClose={() => setDelRecord(false)}
+          footer={
+            <>
+              <button class="btn" onClick={() => setDelRecord(false)}>Otkaži</button>
+              <button
+                class="btn solid danger"
+                onClick={async () => {
+                  if (await run(() => api.del(`/projects/${pid}/statement-docs/${docId}`))) {
+                    setDelRecord(false);
+                    recordsChanged();
+                    go(`p/${app.project!.key}/project/zapis`);
+                  }
+                }}
+              >
+                Obriši zapis i {recRows.length} {izjava(recRows.length)}
+              </button>
+            </>
+          }
+        >
+          <p style={{ margin: 0 }}>
+            Trajno obrisati zapis „{doc?.title || doc?.file_name}“ i sve izjave u njemu, zajedno sa njihovim vezama? Ovo ne može da se poništi.
+          </p>
+        </Modal>
       )}
       {confirmDel && (
         <Modal
@@ -463,7 +542,7 @@ export function Zapis() {
 
 // ---------------------------------------------------------------- add / edit
 
-function StatementForm({ value, parties, topics, onClose, onSaved }: { value: Partial<Statement>; parties: Party[]; topics: string[]; onClose: () => void; onSaved: () => void }) {
+function StatementForm({ value, parties, docs, topics, onClose, onSaved }: { value: Partial<Statement>; parties: Party[]; docs: Doc[]; topics: string[]; onClose: () => void; onSaved: () => void }) {
   const app = useApp();
   const run = useRun();
   const [f, setF] = useState<Partial<Statement>>(value);
@@ -480,6 +559,7 @@ function StatementForm({ value, parties, topics, onClose, onSaved }: { value: Pa
       note: f.note ?? null,
       ...(locked ? {} : { said_by: f.said_by ?? null, said_at: f.said_at ?? Date.now(), quote: f.quote ?? '', source_type: f.source_type ?? 'other', source_label: f.source_label ?? null }),
       ...(isNew && f.source_msg_id ? { source_msg_id: f.source_msg_id } : {}),
+      ...(!locked ? { doc_id: f.doc_id ?? null } : {}),
     };
     const ok = await run(() => (isNew ? api.post(`/projects/${app.project!.id}/statements`, data) : api.patch(`/statements/${value.id}`, data)));
     if (ok) onSaved();
@@ -582,6 +662,16 @@ function StatementForm({ value, parties, topics, onClose, onSaved }: { value: Pa
             <input class="input" disabled={locked} placeholder="npr. Sastanak 12.11. · Zoom" value={f.source_label ?? ''} onInput={(e) => setF({ ...f, source_label: e.currentTarget.value })} />
           </label>
         </div>
+        {!locked && (
+          <label class="field">
+            <span class="label">Zapis</span>
+            <select class="input" value={f.doc_id ?? ''} onChange={(e) => setF({ ...f, doc_id: e.currentTarget.value || null })}>
+              {docs.map((d) => (
+                <option value={d.id}>{d.title || d.file_name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label class="field">
           <span class="label">Napomena (naša, ne deo citata)</span>
           <textarea class="textarea" style={{ minHeight: '60px' }} value={f.note ?? ''} onInput={(e) => setF({ ...f, note: e.currentTarget.value })} />
@@ -593,7 +683,7 @@ function StatementForm({ value, parties, topics, onClose, onSaved }: { value: Pa
 
 // ---------------------------------------------------------------- link two statements
 
-function LinkForm({ from, rows, partyById, onClose, onSaved }: { from: Statement; rows: Statement[]; partyById: Map<string, Party>; onClose: () => void; onSaved: () => void }) {
+function LinkForm({ from, rows, docs, partyById, onClose, onSaved }: { from: Statement; rows: Statement[]; docs: Doc[]; partyById: Map<string, Party>; onClose: () => void; onSaved: () => void }) {
   const app = useApp();
   const { lang } = useT();
   const run = useRun();
@@ -645,7 +735,7 @@ function LinkForm({ from, rows, partyById, onClose, onSaved }: { from: Statement
           {cands.map((s) => (
             <button type="button" class={'link-c' + (to === s.id ? ' on' : '')} onClick={() => setTo(s.id)}>
               <span class="meta">
-                {KIND[s.kind]} · {partyById.get(s.party_id ?? '')?.name ?? '?'} · {fmtDate(toDay(s.said_at))} · {s.topic || 'Bez teme'}
+                {docs.find((d) => d.id === s.doc_id)?.title ?? '—'} · {KIND[s.kind]} · {partyById.get(s.party_id ?? '')?.name ?? '?'} · {fmtDate(toDay(s.said_at))} · {s.topic || 'Bez teme'}
               </span>
               <span>{s.quote.slice(0, 180)}</span>
             </button>
@@ -712,7 +802,7 @@ function PartiesForm({ pid, parties, onClose, onSaved }: { pid: string; parties:
 
 // ---------------------------------------------------------------- document import
 
-function DocImport({ pid, parties, docs, onClose, onDone }: { pid: string; parties: Party[]; docs: Doc[]; onClose: () => void; onDone: () => void }) {
+function DocImport({ pid, parties, onClose, onDone }: { pid: string; parties: Party[]; onClose: () => void; onDone: (id: string) => void }) {
   const app = useApp();
   const { lang } = useT();
   const [step, setStep] = useState<'pick' | 'preview'>('pick');
@@ -752,7 +842,7 @@ function DocImport({ pid, parties, docs, onClose, onDone }: { pid: string; parti
   const doImport = async () => {
     setBusy(true);
     try {
-      const r = await api.post<{ count: number }>(`/projects/${pid}/statement-docs`, {
+      const r = await api.post<{ count: number; doc_id: string }>(`/projects/${pid}/statement-docs`, {
         file_name: fileName,
         title,
         party_id: party || null,
@@ -763,8 +853,8 @@ function DocImport({ pid, parties, docs, onClose, onDone }: { pid: string; parti
         items: items.filter((i) => i.include).map((i) => ({ topic: i.topic, section: i.section, quote: i.quote, kind: i.kind })),
       });
       app.toast(`Uvezeno ${r.count} ${izjava(r.count)}.`, 'ok');
-      onDone();
       onClose();
+      onDone(r.doc_id);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Uvoz nije uspeo.');
     } finally {
@@ -807,26 +897,8 @@ function DocImport({ pid, parties, docs, onClose, onDone }: { pid: string; parti
             />
             <Icon name="up" />
             <b>{busy ? 'Čitam dokument…' : 'Brief, ugovor, zapisnik: prevuci ili klikni'}</b>
-            <span>Word · PDF · Pages · tekst. Naslovi postaju teme, svaka stavka postaje zaključana izjava.</span>
+            <span>Word · PDF · Pages · tekst. Dokument dobija svoj tab: naslovi postaju teme, svaka stavka postaje zaključana izjava.</span>
           </label>
-          {docs.length > 0 && (
-            <div class="imp-hist">
-              <span class="label">Uvezeni dokumenti</span>
-              {docs.map((d) => (
-                <div class="imp-hist-row">
-                  <span>
-                    <b>{d.title || d.file_name}</b> · {d.count} {izjava(d.count)} · {fmtStamp(d.created_at, lang)}
-                    {d.content_sha256 && <span class="faint" title={`SHA-256 celog teksta: ${d.content_sha256}`}> · otisak {d.content_sha256.slice(0, 10)}…</span>}
-                  </span>
-                  {(app.me.role === 'admin' || d.created_by === app.me.id) && (
-                    <button type="button" class="linkbtn danger" onClick={async () => { try { await api.del(`/projects/${pid}/statement-docs/${d.id}`); app.toast('Uvoz je poništen.', 'ok'); onDone(); onClose(); } catch (e) { setErr(e instanceof ApiError ? e.message : 'Poništavanje nije uspelo.'); } }}>
-                      Poništi uvoz
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
       {step === 'preview' && (
@@ -886,5 +958,123 @@ function DocImport({ pid, parties, docs, onClose, onDone }: { pid: string; parti
         </div>
       )}
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- "+ Zapis": list of records, import, new empty record
+
+export function ZapisHome() {
+  const app = useApp();
+  const { lang } = useT();
+  const run = useRun();
+  const pid = app.project!.id;
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [parties, setParties] = useState<Party[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [partiesOpen, setPartiesOpen] = useState(false);
+  const [name, setName] = useState('');
+  const pending = !!pendingStatement;
+  const load = () =>
+    Promise.all([
+      api.get<Party[]>(`/projects/${pid}/parties`).then(setParties),
+      api.get<{ docs: Doc[]; statements: Statement[] }>(`/projects/${pid}/statements`).then((r) =>
+        setDocs(r.docs.map((d) => ({ ...d, count: r.statements.filter((x) => x.doc_id === d.id).length }))),
+      ),
+    ]).catch(() => {});
+  useEffect(() => {
+    load();
+  }, [pid]);
+  const open = (id: string) => go(recPath(app.project!.key, id));
+  const create = async () => {
+    const title = name.trim();
+    if (!title) return;
+    try {
+      const r = await api.post<{ id: string }>(`/projects/${pid}/statement-docs/empty`, { title });
+      recordsChanged();
+      open(r.id);
+    } catch (e) {
+      app.toast(e instanceof ApiError ? e.message : 'Zapis nije napravljen.', 'err');
+    }
+  };
+  return (
+    <>
+      {pending && <div class="warn-box rec-pending">Izaberi zapis u koji ide izjava iz poruke, ili napravi novi.</div>}
+      <div class="chain-bar">
+        <span class="mf-l">Lanac</span>
+        {parties.length ? (
+          parties.map((p, i) => (
+            <>
+              {i > 0 && <span class="chain-arr">→</span>}
+              <span class={`chain-p sc-${ROLE_COLOR[p.role]}`} title={p.people}>
+                <i />
+                {p.name}
+                <small>{ROLE[p.role]}</small>
+              </span>
+            </>
+          ))
+        ) : (
+          <span class="faint">Strane u projektu nisu postavljene.</span>
+        )}
+        <button type="button" class="linkbtn chain-edit" onClick={() => setPartiesOpen(true)}>
+          {parties.length ? 'Uredi lanac' : 'Postavi lanac'}
+        </button>
+      </div>
+
+      <div class="rec-grid">
+        {docs.map((d) => (
+          <button type="button" class="rec-card" onClick={() => open(d.id)}>
+            <span class="eyebrow-s">{d.file_name ? 'Dokument' : 'Zapis'}</span>
+            <b>{d.title || d.file_name}</b>
+            <span class="meta">
+              {d.count} {izjava(d.count)} · {fmtStamp(d.created_at, lang)}
+            </span>
+            {d.file_name && <span class="faint rec-file">{d.file_name}</span>}
+          </button>
+        ))}
+        <div class="rec-card new">
+          <span class="eyebrow-s">Novi zapis</span>
+          <button type="button" class="btn solid" onClick={() => setImportOpen(true)}>
+            <Icon name="up" />
+            Uvezi dokument
+          </button>
+          <span class="meta">brief, ugovor, zapisnik: svaki dobija svoj tab</span>
+          <form
+            class="rec-new"
+            onSubmit={(e) => {
+              e.preventDefault();
+              create();
+            }}
+          >
+            <input class="input" id="rec-new-name" placeholder="ili prazan zapis, npr. Sastanci" value={name} onInput={(e) => setName(e.currentTarget.value)} />
+            <button class="btn" type="submit" disabled={!name.trim()}>
+              Napravi
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {importOpen && (
+        <DocImport
+          pid={pid}
+          parties={parties}
+          onClose={() => setImportOpen(false)}
+          onDone={(id) => {
+            recordsChanged();
+            open(id);
+          }}
+        />
+      )}
+      {partiesOpen && (
+        <PartiesForm
+          pid={pid}
+          parties={parties}
+          onClose={() => setPartiesOpen(false)}
+          onSaved={() => {
+            setPartiesOpen(false);
+            load();
+          }}
+        />
+      )}
+    </>
   );
 }

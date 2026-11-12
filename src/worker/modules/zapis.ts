@@ -9,6 +9,8 @@ import { getProject } from './projects';
  * "Zapis": who said what in a multi-party project. Statements come from documents (brief, contract),
  * Loopthreads messages, meetings and calls; they can be linked (changes / contradicts / confirms).
  * Imported statements are locked: the quote can't be edited, and its SHA-256 proves it.
+ * Statements live in records ("zapisi"): one per source document, each shown as its own project tab.
+ * A record can also be created empty (e.g. "Sastanci") and filled by hand or from Loopthreads.
  */
 export const zapis = new Hono<AppEnv>();
 
@@ -103,13 +105,14 @@ zapis.post('/projects/:pid/statements', async (c) => {
   if (!f.quote) fail(400, 'empty', 'Upiši šta je rečeno.');
   const id = uid();
   await c.env.DB.prepare(
-    `INSERT INTO statements (id, project_id, topic, kind, party_id, via_party_id, said_by, said_at, quote, note, status, due_at, source_type, source_label, source_msg_id, content_sha256, locked, created_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+    `INSERT INTO statements (id, project_id, topic, kind, party_id, via_party_id, said_by, said_at, quote, note, status, due_at, source_type, source_label, source_msg_id, content_sha256, locked, created_by, created_at, doc_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
   )
     .bind(
       id, pid, f.topic, f.kind, await inProject(c, 'project_parties', str(b.party_id, 64), pid), await inProject(c, 'project_parties', str(b.via_party_id, 64), pid),
       f.said_by, f.said_at, f.quote, f.note, f.status, f.due_at, f.source_type, f.source_label,
       await inProject(c, 'correspondence', str(b.source_msg_id, 64), pid), await sha256(f.quote!), c.get('user').id, now(),
+      await inProject(c, 'statement_docs', str(b.doc_id, 64), pid),
     )
     .run();
   return c.json({ id });
@@ -131,6 +134,7 @@ zapis.patch('/statements/:id', async (c) => {
   if ('note' in b) set('note', f.note);
   if ('party_id' in b) set('party_id', await inProject(c, 'project_parties', str(b.party_id, 64), s!.project_id));
   if ('via_party_id' in b) set('via_party_id', await inProject(c, 'project_parties', str(b.via_party_id, 64), s!.project_id));
+  if ('doc_id' in b && !s!.locked) set('doc_id', await inProject(c, 'statement_docs', str(b.doc_id, 64), s!.project_id));
   // The record itself (what, who, when, where from) is frozen once locked.
   const recordKeys = ['quote', 'said_by', 'said_at', 'source_type', 'source_label'];
   if (recordKeys.some((k) => k in b)) {
@@ -181,6 +185,41 @@ zapis.post('/projects/:pid/statement-links', async (c) => {
 
 zapis.delete('/statement-links/:id', async (c) => {
   await c.env.DB.prepare('DELETE FROM statement_links WHERE id = ?').bind(c.req.param('id')).run();
+  return c.json({ ok: true });
+});
+
+// ---------- records ("zapisi")
+
+zapis.get('/projects/:pid/statement-docs', async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT d.id, d.title, d.file_name, d.created_at, (SELECT COUNT(*) FROM statements s WHERE s.doc_id = d.id) AS count
+     FROM statement_docs d WHERE d.project_id = ? ORDER BY d.created_at`,
+  )
+    .bind(c.req.param('pid'))
+    .all();
+  return c.json(results);
+});
+
+/** An empty record (no source document), e.g. "Sastanci" or "Telefonski dogovori". */
+zapis.post('/projects/:pid/statement-docs/empty', async (c) => {
+  const pid = c.req.param('pid');
+  await getProject(c.env.DB, pid);
+  const b = await body(c);
+  const title = str(b.title, 120);
+  if (!title) fail(400, 'empty', 'Upiši naziv zapisa.');
+  const id = uid();
+  await c.env.DB.prepare('INSERT INTO statement_docs (id, project_id, file_name, title, content_sha256, count, created_by, created_at) VALUES (?, ?, NULL, ?, NULL, 0, ?, ?)')
+    .bind(id, pid, title, c.get('user').id, now())
+    .run();
+  return c.json({ id });
+});
+
+zapis.patch('/projects/:pid/statement-docs/:id', async (c) => {
+  const b = await body(c);
+  const title = str(b.title, 120);
+  if (!title) fail(400, 'empty', 'Upiši naziv zapisa.');
+  const r = await c.env.DB.prepare('UPDATE statement_docs SET title = ? WHERE id = ? AND project_id = ?').bind(title, c.req.param('id'), c.req.param('pid')).run();
+  if (!r.meta.changes) fail(404, 'not_found');
   return c.json({ ok: true });
 });
 
